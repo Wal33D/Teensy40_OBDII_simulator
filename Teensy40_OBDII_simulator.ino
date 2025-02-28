@@ -64,7 +64,7 @@ void loop() {
   ecu_sim.update();
 
   // Blink on-board LED every ~1 second
-  if (led_tick > 1000) {
+  if (led_tick > 2000) {
     led_tick = 0;
     digitalToggle(led);
   }

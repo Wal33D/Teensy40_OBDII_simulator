@@ -28,7 +28,7 @@ static const char simulated_calid[] = "000007615981";
 static const char simulated_cvn[]   = "B34322E5";
 
 /*******************************************************
- * Hardcoded VIN array and index for cycling VINs
+ * Hardcoded VIN array for random selection
  *******************************************************/
 const char* vinArray[] = {
   "5NPLL4AG1NH061942",
@@ -37,7 +37,6 @@ const char* vinArray[] = {
   "KL79MRSL1NB091120"
 };
 const int numVINs = sizeof(vinArray) / sizeof(vinArray[0]);
-int currentVINIndex = 0;
 
 /*******************************************************
  * Forward declarations for helper functions
@@ -62,10 +61,13 @@ uint8_t ecu_simClass::init(uint32_t baud) {
   pinMode(SW2, INPUT_PULLUP);
 
   // LED pins for "check engine" (red) and "activity" (green)
-  pinMode(LED_red,   OUTPUT);
+  pinMode(LED_red, OUTPUT);
   pinMode(LED_green, OUTPUT);
-  digitalWrite(LED_red,   LOW);
+  digitalWrite(LED_red, LOW);
   digitalWrite(LED_green, LOW);
+
+  // Seed the random number generator using an analog input (assumes A0 is available)
+  randomSeed(analogRead(A0));
 
   // Initialize CAN bus at specified baud (e.g., 500000)
   CANbus.begin();
@@ -78,8 +80,8 @@ uint8_t ecu_simClass::init(uint32_t baud) {
   ecu.dtc = 0;
 
   // Initialize our new fields
-  ecu.engine_load      = 0;
-  ecu.intake_air_temp  = 0;
+  ecu.engine_load     = 0;
+  ecu.intake_air_temp = 0;
 
   return 0;
 }
@@ -87,10 +89,10 @@ uint8_t ecu_simClass::init(uint32_t baud) {
 /**
  * Update the simulator’s analog inputs (potentiometers) and
  * check whether the SW1 button was pressed to toggle DTC,
- * and SW2 to change the VIN and reset the simulator.
+ * and SW2 to randomly choose a new VIN and randomize some sensor values.
  */
 void ecu_simClass::update_pots(void) {
-  // Example usage of analog inputs for existing PIDs:
+  // Normal analog readings for sensor values:
   ecu.engine_rpm        = 0xFFFF - map(analogRead(AN1), 0, 1023, 0, 0xFFFF);
   ecu.vehicle_speed     = 0xFF   - map(analogRead(AN3), 0, 1023, 0, 0xFF);
   ecu.coolant_temp      = 0xFF   - map(analogRead(AN2), 0, 1023, 0, 0xFF);
@@ -98,12 +100,9 @@ void ecu_simClass::update_pots(void) {
   ecu.throttle_position = 0xFF   - map(analogRead(AN5), 0, 1023, 0, 0xFF);
   ecu.o2_voltage        = 0xFFFF - map(analogRead(AN6), 0, 1023, 0, 0xFFFF);
 
-  // NEW: Example for engine load (AN7 if available)
-  // Range 0-255 => 0-100% load
+  // Use analog inputs for engine load and intake air temp under normal conditions:
+  // (These values will be overridden on reset via SW2.)
   ecu.engine_load = map(analogRead(AN7), 0, 1023, 0, 255);
-
-  // NEW: Example for intake air temp (could reuse AN6 or another pin)
-  // Range 0-255 => (A - 40) °C in real OBD
   uint16_t rawIAT = analogRead(AN2);
   ecu.intake_air_temp = map(rawIAT, 0, 1023, 0, 255);
 
@@ -120,24 +119,31 @@ void ecu_simClass::update_pots(void) {
     }
   }
 
-  // Use SW2 to cycle through VINs and restart simulator state
+  // Use SW2 to randomize VIN and sensor values, then "restart" the simulator.
   if (pushbuttonSW2.update()) {
     if (pushbuttonSW2.fallingEdge()) {
-      // Cycle to the next VIN in the array
-      currentVINIndex = (currentVINIndex + 1) % numVINs;
-      strcpy(simulated_vin, vinArray[currentVINIndex]);
+      // Randomly choose a VIN from the array
+      int randomIndex = random(0, numVINs);
+      strcpy(simulated_vin, vinArray[randomIndex]);
       Serial.print("VIN changed to: ");
       Serial.println(simulated_vin);
       
-      // Flash LED_green to indicate VIN change
+      // Randomize ENGINE_LOAD and INTAKE_AIR_TEMP
+      ecu.engine_load = random(0, 256);       // 0-255 range
+      ecu.intake_air_temp = random(0, 256);     // 0-255 range
+      Serial.print("Engine load set to: ");
+      Serial.println(ecu.engine_load);
+      Serial.print("Intake air temp set to: ");
+      Serial.println(ecu.intake_air_temp);
+
+      // Flash LED_green to provide visual feedback for VIN change
       flashLED(LED_green, 100);
 
-      // "Restart" the simulator by resetting state variables.
-      // For example, clear any stored DTC and reset the error LED.
+      // "Restart" the simulator state by clearing any stored DTC and turning off the error LED.
       ecu.dtc = 0;
       digitalWrite(LED_red, LOW);
-      
-      // Flash LED_green again to indicate simulator reset
+
+      // Flash LED_green again to indicate simulator reset.
       flashLED(LED_green, 100);
     }
   }
