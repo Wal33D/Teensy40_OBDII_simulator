@@ -41,9 +41,15 @@ void setup() {
   digitalWrite(LED_green, HIGH);
   delay(1000);
   digitalWrite(LED_green, LOW);
+  digitalWrite(LED_red, HIGH);
+  delay(1000);
+  digitalWrite(LED_red, LOW);
+  digitalWrite(LED_green, HIGH);
+  delay(1000);
+  digitalWrite(LED_green, LOW);
 
   Serial.begin(115200);
-  Serial.println("****** Teensy 4.0 OBDII simulator skpang.co.uk 2022 ******");
+  Serial.println("****** Teensy 4.0 OBDII simulator - Enhanced ******");
 
   // Initialize CAN simulator code
   ecu_sim.init(500000);
