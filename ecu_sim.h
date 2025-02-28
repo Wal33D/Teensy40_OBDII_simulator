@@ -12,14 +12,14 @@
 
 #define PID_SUPPORTED       0x00
 #define MONITOR_STATUS      0x01
-#define ENGINE_LOAD         0x04  // <--- NEW
+#define ENGINE_LOAD         0x04  // <--- NEW: Engine load PID
 #define ENGINE_COOLANT_TEMP 0x05
 #define ENGINE_RPM          0x0C
 #define VEHICLE_SPEED       0x0D
 #define MAF_SENSOR          0x10
 #define THROTTLE            0x11
 #define O2_VOLTAGE          0x14
-#define INTAKE_AIR_TEMP     0x0F  // <--- NEW
+#define INTAKE_AIR_TEMP     0x0F  // <--- NEW: Intake air temp PID
 
 // Mode 9 sub-PIDs
 #define VIN_PID                 0x02
@@ -36,22 +36,20 @@
 // ECU Physical ID used for flow control responses (typically 0x7E0)
 #define ECU_PHYS_ID         0x7E0
 
+// Pin definitions
 static const int LED_red   = 9;
 static const int LED_green = 8;
+static const int SW1       = 6;
+static const int SW2       = 7;
 
-static const int SW1 = 6;
-static const int SW2 = 7;
-
-// Existing analog inputs
+// Analog input definitions
 static const int AN1 = 0;
 static const int AN2 = 1;
 static const int AN3 = 2;
 static const int AN4 = 3;
 static const int AN5 = 6;
 static const int AN6 = 7;
-
-// If you need an extra analog for engine load or intake temp, you can reuse or add more:
-static const int AN7 = 8;  // Example if you have a free channel (Teensy 4.0 has many ADC pins)
+static const int AN7 = 8;  // Extra analog channel (e.g., for engine load/intake air temp)
 
 /**
  * Data structure representing various simulated PID values.
@@ -76,7 +74,21 @@ typedef struct {
 extern ecu_t ecu;
 
 /**
+ * Global variables for VIN simulation.
+ * - simulated_vin is mutable and updated (randomized) when SW2 is pressed.
+ * - simulated_calid and simulated_cvn remain constant.
+ */
+extern char simulated_vin[18];
+extern const char simulated_calid[];
+extern const char simulated_cvn[];
+
+/**
  * Main ECU simulator class.
+ *
+ * The ECU simulator handles sensor updates (update_pots) and processes incoming CAN messages (update).
+ * In the updated functionality, pressing SW2 will randomize:
+ *  - The VIN (selected from a hardcoded array)
+ *  - The engine load and intake air temperature values.
  */
 class ecu_simClass {
   public:
