@@ -8,7 +8,6 @@
  *******************************************************/
 extern uint16_t flash_led_tick;  // If used for LED blinking logic
 
-
 // Instantiate the simulator class
 ecu_simClass ecu_sim;
 
@@ -22,9 +21,22 @@ FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> CANbus;
 /*******************************************************
  * Simulated strings for Mode 9 (VIN, CALID, CVN)
  *******************************************************/
-static const char simulated_vin[]    = "3TMCZ5ANXJM137018"; 
+// Make VIN mutable so that it can be updated.
+char simulated_vin[18] = "3TMCZ5ANXJM137018";
 static const char simulated_calid[] = "000007615981";
 static const char simulated_cvn[]   = "B34322E5";
+
+/*******************************************************
+ * Hardcoded VIN array and index for cycling VINs
+ *******************************************************/
+const char* vinArray[] = {
+  "5NPLL4AG1NH061942",
+  "3TMCZ5ANXJM137018",
+  "5NPLL4AG0NH053394",
+  "KL79MRSL1NB091120"
+};
+const int numVINs = sizeof(vinArray) / sizeof(vinArray[0]);
+int currentVINIndex = 0;
 
 /*******************************************************
  * Forward declarations for Mode 9 helper functions
@@ -72,7 +84,8 @@ uint8_t ecu_simClass::init(uint32_t baud) {
 
 /**
  * Update the simulator’s analog inputs (potentiometers) and
- * check whether the SW1 button was pressed to toggle DTC.
+ * check whether the SW1 button was pressed to toggle DTC,
+ * and SW2 to change the VIN.
  */
 void ecu_simClass::update_pots(void) {
   // Example usage of analog inputs for existing PIDs:
@@ -89,9 +102,6 @@ void ecu_simClass::update_pots(void) {
 
   // NEW: Example for intake air temp (could reuse AN6 or another pin)
   // Range 0-255 => (A - 40) °C in real OBD
-  // We'll just store 0..255 in the struct and let the formula be done in the PID parse
-  // For demonstration, reusing AN2 or a new pin. Let's reuse AN2 offset by 50 for variety
-  // (Just an example. You can do whatever math you like.)
   uint16_t rawIAT = analogRead(AN2);
   ecu.intake_air_temp = map(rawIAT, 0, 1023, 0, 255);
 
@@ -105,6 +115,24 @@ void ecu_simClass::update_pots(void) {
         ecu.dtc = 0;
         digitalWrite(LED_red, LOW);
       }
+    }
+  }
+
+  // Use SW2 to cycle through VINs and restart simulator state
+  if (pushbuttonSW2.update()) {
+    if (pushbuttonSW2.fallingEdge()) {
+      // Cycle to the next VIN in the array
+      currentVINIndex = (currentVINIndex + 1) % numVINs;
+      strcpy(simulated_vin, vinArray[currentVINIndex]);
+      Serial.print("VIN changed to: ");
+      Serial.println(simulated_vin);
+      
+      // "Restart" the simulator by resetting state variables as needed.
+      // For example, clear any stored DTC and reset the error LED.
+      ecu.dtc = 0;
+      digitalWrite(LED_red, LOW);
+      
+      // (Optional) Reset additional simulation variables if necessary.
     }
   }
 }
@@ -277,8 +305,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           default:
-            // If we got an unrecognized PID, you can respond with "NO DATA"
-            // or send negative response, etc.
+            // Unrecognized PID; send negative response
             sendNegativeResponse(can_MsgRx.buf[1], can_MsgRx.buf[2]);
             break;
         }
