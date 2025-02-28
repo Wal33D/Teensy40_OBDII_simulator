@@ -22,6 +22,7 @@ FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> CANbus;
  * Simulated strings for Mode 9 (VIN, CALID, CVN)
  *******************************************************/
 // Make VIN mutable so that it can be updated.
+// 17 characters plus the null terminator.
 char simulated_vin[18] = "3TMCZ5ANXJM137018";
 static const char simulated_calid[] = "000007615981";
 static const char simulated_cvn[]   = "B34322E5";
@@ -39,7 +40,7 @@ const int numVINs = sizeof(vinArray) / sizeof(vinArray[0]);
 int currentVINIndex = 0;
 
 /*******************************************************
- * Forward declarations for Mode 9 helper functions
+ * Forward declarations for helper functions
  *******************************************************/
 static void respondWithVIN();
 static void respondWithCALID();
@@ -48,6 +49,7 @@ static void sendNegativeResponse(uint8_t service, uint8_t pid);
 static bool waitForFlowControl();
 static void printFrameData(const CAN_message_t &msg);
 static String hexByte(uint8_t b);
+static void flashLED(uint8_t ledPin, unsigned int duration = 100);
 
 /*******************************************************
  * ecu_simClass Implementation
@@ -85,7 +87,7 @@ uint8_t ecu_simClass::init(uint32_t baud) {
 /**
  * Update the simulator’s analog inputs (potentiometers) and
  * check whether the SW1 button was pressed to toggle DTC,
- * and SW2 to change the VIN.
+ * and SW2 to change the VIN and reset the simulator.
  */
 void ecu_simClass::update_pots(void) {
   // Example usage of analog inputs for existing PIDs:
@@ -127,12 +129,16 @@ void ecu_simClass::update_pots(void) {
       Serial.print("VIN changed to: ");
       Serial.println(simulated_vin);
       
-      // "Restart" the simulator by resetting state variables as needed.
+      // Flash LED_green to indicate VIN change
+      flashLED(LED_green, 100);
+
+      // "Restart" the simulator by resetting state variables.
       // For example, clear any stored DTC and reset the error LED.
       ecu.dtc = 0;
       digitalWrite(LED_red, LOW);
       
-      // (Optional) Reset additional simulation variables if necessary.
+      // Flash LED_green again to indicate simulator reset
+      flashLED(LED_green, 100);
     }
   }
 }
@@ -234,7 +240,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case ENGINE_RPM:
-            //   ((A*256)+B)/4 [RPM]
+            // ((A*256)+B)/4 [RPM]
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = ENGINE_RPM;
             can_MsgTx.buf[3] = (ecu.engine_rpm & 0xff00) >> 8;
@@ -243,7 +249,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case ENGINE_COOLANT_TEMP:
-            //   A - 40 [°C]
+            // A - 40 [°C]
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = ENGINE_COOLANT_TEMP;
             can_MsgTx.buf[3] = ecu.coolant_temp;
@@ -251,7 +257,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case VEHICLE_SPEED:
-            //   A [km/h]
+            // A [km/h]
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = VEHICLE_SPEED;
             can_MsgTx.buf[3] = ecu.vehicle_speed;
@@ -259,7 +265,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case MAF_SENSOR:
-            //   ((256*A)+B)/100 [g/s]
+            // ((256*A)+B)/100 [g/s]
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = MAF_SENSOR;
             can_MsgTx.buf[3] = (ecu.maf_airflow & 0xff00) >> 8;
@@ -268,7 +274,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case O2_VOLTAGE:
-            //   A * 0.005 [V], (B-128) * 100/128
+            // A * 0.005 [V], (B-128) * 100/128
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = O2_VOLTAGE;
             can_MsgTx.buf[3] = (ecu.o2_voltage & 0x00ff);
@@ -277,7 +283,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case THROTTLE:
-            //   A * 100/255 [%]
+            // A * 100/255 [%]
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = THROTTLE;
             can_MsgTx.buf[3] = ecu.throttle_position;
@@ -289,7 +295,7 @@ uint8_t ecu_simClass::update(void) {
 
           // NEW CASES
           case ENGINE_LOAD:
-            //   A * 100/255 [%]
+            // A * 100/255 [%]
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = ENGINE_LOAD; 
             can_MsgTx.buf[3] = ecu.engine_load; 
@@ -297,7 +303,7 @@ uint8_t ecu_simClass::update(void) {
             break;
 
           case INTAKE_AIR_TEMP:
-            //   A - 40 [°C]
+            // A - 40 [°C]
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = INTAKE_AIR_TEMP;
             can_MsgTx.buf[3] = ecu.intake_air_temp;
@@ -595,4 +601,14 @@ static String hexByte(uint8_t b) {
   char buf[3];
   snprintf(buf, sizeof(buf), "%02X", b);
   return String(buf);
+}
+
+/**
+ * flashLED: Turns the specified LED on for a short duration,
+ * then turns it off to provide visual feedback.
+ */
+static void flashLED(uint8_t ledPin, unsigned int duration) {
+  digitalWrite(ledPin, HIGH);
+  delay(duration);
+  digitalWrite(ledPin, LOW);
 }
