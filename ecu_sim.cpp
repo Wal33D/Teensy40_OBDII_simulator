@@ -11,7 +11,7 @@
  * monitoring and control functions.
  */
 
-#include <Bounce.h>
+#include <Bounce2.h>
 #include "ecu_sim.h"
 #include <FlexCAN_T4.h>
 
@@ -68,10 +68,15 @@ void ecu_simClass::update_pots(void)
     {
       if(ecu.dtc == 0)
       {
-          ecu.dtc = 1;
-          digitalWrite(LED_red, HIGH);
+          // Activate DTCs - simulating 2 emission faults
+          ecu.dtc = 1;  // Flag indicating DTCs are active
+          digitalWrite(LED_red, HIGH);  // Turn on MIL (Malfunction Indicator Lamp)
 
-          // Capture freeze frame data when DTC is triggered
+          // OBD-II Freeze Frame Capture per SAE J1979
+          // Snapshot of operating conditions when DTC is set
+          // We store 2 DTCs with their freeze frames to match Mode 01 PID 01 reporting
+
+          // Frame 0x00: Primary freeze frame (highest priority DTC)
           freeze_frame[0].coolant_temp = ecu.coolant_temp;
           freeze_frame[0].engine_rpm = ecu.engine_rpm;
           freeze_frame[0].throttle_position = ecu.throttle_position;
@@ -79,8 +84,9 @@ void ecu_simClass::update_pots(void)
           freeze_frame[0].maf_airflow = ecu.maf_airflow;
           freeze_frame[0].o2_voltage = ecu.o2_voltage;
           freeze_frame[0].data_stored = true;
-          freeze_frame[0].dtc_code = 0x0100;  // P0100
+          freeze_frame[0].dtc_code = 0x0100;  // P0100: MAF Circuit Malfunction
 
+          // Frame 0x01: Secondary freeze frame
           freeze_frame[1].coolant_temp = ecu.coolant_temp;
           freeze_frame[1].engine_rpm = ecu.engine_rpm;
           freeze_frame[1].throttle_position = ecu.throttle_position;
@@ -88,12 +94,17 @@ void ecu_simClass::update_pots(void)
           freeze_frame[1].maf_airflow = ecu.maf_airflow;
           freeze_frame[1].o2_voltage = ecu.o2_voltage;
           freeze_frame[1].data_stored = true;
-          freeze_frame[1].dtc_code = 0x0200;  // P0200
+          freeze_frame[1].dtc_code = 0x0200;  // P0200: Injector Circuit Malfunction
 
-      }else 
+      }else
       {
+          // Clear all DTCs and turn off MIL
           ecu.dtc = 0;
           digitalWrite(LED_red, LOW);
+
+          // Also clear freeze frames when manually clearing via button
+          freeze_frame[0].data_stored = false;
+          freeze_frame[1].data_stored = false;
       }
     }
   }
@@ -124,31 +135,56 @@ uint8_t ecu_simClass::update(void)
 
         if(can_MsgRx.buf[1] == MODE3) // Request trouble codes
         {
+            // Real vehicles: Each ECU reports its own DTCs
+            // Engine ECU (0x7E8): P0xxx codes
+            // Trans ECU (0x7E9): P07xx codes
+            // Body ECU (0x7EA): B/U codes
+
             if(ecu.dtc == false){
-                can_MsgTx.buf[0] = 0x02; 
-                can_MsgTx.buf[1] = MODE3_RESPONSE;    
-                can_MsgTx.buf[2] = 0x00;  
-             }else{
-                can_MsgTx.buf[0] = 0x06; 
-                can_MsgTx.buf[1] = MODE3_RESPONSE;    
-                can_MsgTx.buf[2] = 0x02;  
-                can_MsgTx.buf[3] = 0x01;  
-                can_MsgTx.buf[4] = 0x00;                
-                can_MsgTx.buf[5] = 0x02;
-                can_MsgTx.buf[6] = 0x00;                
-             }
-             can_MsgTx.id = PID_REPLY;  //7E8
-             can_MsgTx.len = 8; 
-             can1.write(can_MsgTx);
+                // No DTCs - only primary ECU responds with "no codes"
+                can_MsgTx.id = PID_REPLY;
+                can_MsgTx.buf[0] = 0x02;
+                can_MsgTx.buf[1] = MODE3_RESPONSE;
+                can_MsgTx.buf[2] = 0x00;  // 0 DTCs
+                can_MsgTx.len = 8;
+                can1.write(can_MsgTx);
+            }else{
+                // Engine ECU reports engine DTCs
+                can_MsgTx.id = 0x7E8;
+                can_MsgTx.buf[0] = 0x04;
+                can_MsgTx.buf[1] = MODE3_RESPONSE;
+                can_MsgTx.buf[2] = 0x01;  // 1 DTC from engine
+                can_MsgTx.buf[3] = 0x01;  // P0100
+                can_MsgTx.buf[4] = 0x00;  // MAF Circuit
+                can_MsgTx.len = 8;
+                can1.write(can_MsgTx);
+
+                // Variable delay for bus arbitration
+                delay(random(5, 12));
+
+                // Transmission ECU reports trans DTCs
+                can_MsgTx.id = 0x7E9;
+                can_MsgTx.buf[0] = 0x04;
+                can_MsgTx.buf[1] = MODE3_RESPONSE;
+                can_MsgTx.buf[2] = 0x01;  // 1 DTC from trans
+                can_MsgTx.buf[3] = 0x07;  // P0700
+                can_MsgTx.buf[4] = 0x00;  // Trans Control System
+                can_MsgTx.len = 8;
+                can1.write(can_MsgTx);
+            }
         }
       
         if(can_MsgRx.buf[1] == MODE4) // Clear trouble codes, clear Check engine light
         {
+            // Clear all DTCs - this will update Mode 01 PID 01 to report 0 DTCs
             ecu.dtc = false;
-            digitalWrite(LED_red, LOW);
-            // Clear freeze frame data
+            digitalWrite(LED_red, LOW);  // Turn off MIL (Check Engine Light)
+
+            // Clear freeze frame data per OBD-II standard
             freeze_frame[0].data_stored = false;
             freeze_frame[1].data_stored = false;
+
+            // Send Mode 04 acknowledgment
             can_MsgTx.buf[0] = 0x00;
             can_MsgTx.buf[1] = MODE4_RESPONSE;
             can_MsgTx.id = PID_REPLY;
@@ -162,12 +198,21 @@ uint8_t ecu_simClass::update(void)
             can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE2_RESPONSE;
 
-            // Standard OBD-II: buf[2]=PID, buf[3]=Frame (optional, defaults to 0x00)
-            // Check buf[0] for actual data length, or use buf[3] if provided
-            uint8_t frame_num = (can_MsgRx.buf[0] >= 3) ? can_MsgRx.buf[3] : 0x00;
+            // OBD-II Standard: Mode 02 request format is always:
+            // buf[0]=length, buf[1]=0x02, buf[2]=PID, buf[3]=Frame Number
+            // Frame number is ALWAYS in buf[3] for Mode 02
+            uint8_t frame_num = can_MsgRx.buf[3];
 
-            // Support frame 0 and 1 (we have 2 DTCs with freeze frames)
-            if(frame_num <= 1 && freeze_frame[frame_num].data_stored)
+            // Validate frame number (we support frames 0x00 and 0x01)
+            if(frame_num > 1) {
+                // Invalid frame number - respond with no data
+                can_MsgTx.buf[0] = 0x00;
+                can1.write(can_MsgTx);
+                return 0;
+            }
+
+            // Check if requested frame has stored data
+            if(freeze_frame[frame_num].data_stored)
             {
                 // Use stored freeze frame data, not current sensor values
                 switch(can_MsgRx.buf[2])  // PID is in buf[2]
@@ -175,55 +220,70 @@ uint8_t ecu_simClass::update(void)
                     case PID_SUPPORTED:
                         can_MsgTx.buf[0] = 0x06;
                         can_MsgTx.buf[2] = PID_SUPPORTED;
-                        can_MsgTx.buf[3] = 0xE8;  // Same PIDs as Mode 1
-                        can_MsgTx.buf[4] = 0x19;
-                        can_MsgTx.buf[5] = 0x30;
-                        can_MsgTx.buf[6] = 0x12;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = 0xEC;          // Supported PIDs including 0x02 (bit 2 set)
+                        can_MsgTx.buf[5] = 0x19;
+                        can_MsgTx.buf[6] = 0x30;
+                        can1.write(can_MsgTx);
+                        break;
+
+                    case DTC_FREEZE_FRAME:  // PID 0x02 - DTC that caused freeze frame
+                        can_MsgTx.buf[0] = 0x05;  // 5 bytes: SID + PID + Frame + 2-byte DTC
+                        can_MsgTx.buf[2] = DTC_FREEZE_FRAME;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = (freeze_frame[frame_num].dtc_code & 0xFF00) >> 8;  // DTC high byte
+                        can_MsgTx.buf[5] = freeze_frame[frame_num].dtc_code & 0x00FF;        // DTC low byte
                         can1.write(can_MsgTx);
                         break;
 
                     case ENGINE_RPM:
-                        can_MsgTx.buf[0] = 0x04;
+                        can_MsgTx.buf[0] = 0x05;
                         can_MsgTx.buf[2] = ENGINE_RPM;
-                        can_MsgTx.buf[3] = (freeze_frame[frame_num].engine_rpm & 0xff00) >> 8;
-                        can_MsgTx.buf[4] = freeze_frame[frame_num].engine_rpm & 0x00ff;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = (freeze_frame[frame_num].engine_rpm & 0xff00) >> 8;
+                        can_MsgTx.buf[5] = freeze_frame[frame_num].engine_rpm & 0x00ff;
                         can1.write(can_MsgTx);
                         break;
 
                     case ENGINE_COOLANT_TEMP:
-                        can_MsgTx.buf[0] = 0x03;
+                        can_MsgTx.buf[0] = 0x04;
                         can_MsgTx.buf[2] = ENGINE_COOLANT_TEMP;
-                        can_MsgTx.buf[3] = freeze_frame[frame_num].coolant_temp;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = freeze_frame[frame_num].coolant_temp;
                         can1.write(can_MsgTx);
                         break;
 
                     case VEHICLE_SPEED:
-                        can_MsgTx.buf[0] = 0x03;
+                        can_MsgTx.buf[0] = 0x04;
                         can_MsgTx.buf[2] = VEHICLE_SPEED;
-                        can_MsgTx.buf[3] = freeze_frame[frame_num].vehicle_speed;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = freeze_frame[frame_num].vehicle_speed;
                         can1.write(can_MsgTx);
                         break;
 
                     case MAF_SENSOR:
-                        can_MsgTx.buf[0] = 0x04;
+                        can_MsgTx.buf[0] = 0x05;
                         can_MsgTx.buf[2] = MAF_SENSOR;
-                        can_MsgTx.buf[3] = (freeze_frame[frame_num].maf_airflow & 0xff00) >> 8;
-                        can_MsgTx.buf[4] = freeze_frame[frame_num].maf_airflow & 0x00ff;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = (freeze_frame[frame_num].maf_airflow & 0xff00) >> 8;
+                        can_MsgTx.buf[5] = freeze_frame[frame_num].maf_airflow & 0x00ff;
                         can1.write(can_MsgTx);
                         break;
 
                     case O2_VOLTAGE:
-                        can_MsgTx.buf[0] = 0x04;
+                        can_MsgTx.buf[0] = 0x05;
                         can_MsgTx.buf[2] = O2_VOLTAGE;
-                        can_MsgTx.buf[3] = freeze_frame[frame_num].o2_voltage & 0x00ff;
-                        can_MsgTx.buf[4] = (freeze_frame[frame_num].o2_voltage & 0xff00) >> 8;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = freeze_frame[frame_num].o2_voltage & 0x00ff;
+                        can_MsgTx.buf[5] = (freeze_frame[frame_num].o2_voltage & 0xff00) >> 8;
                         can1.write(can_MsgTx);
                         break;
 
                     case THROTTLE:
-                        can_MsgTx.buf[0] = 0x03;
+                        can_MsgTx.buf[0] = 0x04;
                         can_MsgTx.buf[2] = THROTTLE;
-                        can_MsgTx.buf[3] = freeze_frame[frame_num].throttle_position;
+                        can_MsgTx.buf[3] = frame_num;     // Include frame number
+                        can_MsgTx.buf[4] = freeze_frame[frame_num].throttle_position;
                         can1.write(can_MsgTx);
                         break;
                 }
@@ -231,13 +291,94 @@ uint8_t ecu_simClass::update(void)
             else
             {
                 // No freeze frame data stored for this frame number
-                can_MsgTx.buf[0] = 0x00;  // No data available
-                can1.write(can_MsgTx);
+                // OBD-II Standard: Return appropriate response based on PID
+                switch(can_MsgRx.buf[2])  // Check requested PID
+                {
+                    case PID_SUPPORTED:
+                        // Always respond with supported PIDs even if no data
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = frame_num;
+                        can_MsgTx.buf[4] = 0xEC;  // PIDs supported
+                        can_MsgTx.buf[5] = 0x19;
+                        can_MsgTx.buf[6] = 0x30;
+                        can1.write(can_MsgTx);
+                        break;
+
+                    case DTC_FREEZE_FRAME:
+                        // Return 0x0000 to indicate no freeze frame exists
+                        can_MsgTx.buf[0] = 0x05;
+                        can_MsgTx.buf[2] = DTC_FREEZE_FRAME;
+                        can_MsgTx.buf[3] = frame_num;
+                        can_MsgTx.buf[4] = 0x00;  // No DTC
+                        can_MsgTx.buf[5] = 0x00;  // No DTC
+                        can1.write(can_MsgTx);
+                        break;
+
+                    default:
+                        // For other PIDs, return no data
+                        can_MsgTx.buf[0] = 0x00;  // No data available
+                        can1.write(can_MsgTx);
+                        break;
+                }
             }
         }
 
         if(can_MsgRx.buf[1] == MODE1) // Live data
         {
+            // Determine which ECU should respond based on PID
+            // In real vehicles, different ECUs handle different PIDs
+            uint8_t pid = can_MsgRx.buf[2];
+            bool engine_ecu_responds = false;
+            bool trans_ecu_responds = false;
+            bool body_ecu_responds = false;
+
+            // Determine which ECUs should respond to this PID
+            // Based on real vehicle behavior
+            switch(pid) {
+                // Engine ECU handles most engine-related PIDs
+                case PID_SUPPORTED:
+                case MONITOR_STATUS:
+                case FUEL_SYSTEM_STATUS:
+                case CALCULATED_LOAD:
+                case ENGINE_COOLANT_TEMP:
+                case SHORT_FUEL_TRIM_1:
+                case LONG_FUEL_TRIM_1:
+                case SHORT_FUEL_TRIM_2:
+                case LONG_FUEL_TRIM_2:
+                case INTAKE_PRESSURE:
+                case ENGINE_RPM:
+                case TIMING_ADVANCE:
+                case INTAKE_AIR_TEMP:
+                case MAF_SENSOR:
+                case THROTTLE:
+                case O2_SENSORS_PRESENT:
+                case O2_VOLTAGE:
+                case O2_SENSOR_2_B1:
+                case O2_SENSOR_2_B2:
+                    engine_ecu_responds = true;
+                    break;
+
+                // Transmission ECU only responds to speed and some PIDs
+                case VEHICLE_SPEED:
+                    engine_ecu_responds = true;
+                    trans_ecu_responds = true;  // Both can provide speed
+                    break;
+
+                // Body ECU handles battery voltage
+                case CONTROL_MOD_VOLT:
+                    body_ecu_responds = true;
+                    break;
+
+                // All ECUs respond to supported PIDs query
+                case PID_20_SUPPORTED:
+                case PID_40_SUPPORTED:
+                    engine_ecu_responds = true;
+                    trans_ecu_responds = true;
+                    body_ecu_responds = true;
+                    break;
+            }
+
             can_MsgTx.id = PID_REPLY;
             can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE1_RESPONSE;
@@ -313,13 +454,48 @@ uint8_t ecu_simClass::update(void)
             switch(can_MsgRx.buf[2])  // PID is in buf[2]
             {
                 case PID_SUPPORTED:  // 0x00 - PIDs 01-20
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xBF;  // From Mercedes: BFBEA893
-                    can_MsgTx.buf[4] = 0xBE;
-                    can_MsgTx.buf[5] = 0xA8;
-                    can_MsgTx.buf[6] = 0x93;
-                    can1.write(can_MsgTx);
+                    if(engine_ecu_responds) {
+                        // Engine ECU - full capabilities
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = 0xBF;  // Engine-related PIDs
+                        can_MsgTx.buf[4] = 0xBE;
+                        can_MsgTx.buf[5] = 0xA8;
+                        can_MsgTx.buf[6] = 0x93;
+                        can1.write(can_MsgTx);
+                    }
+
+                    if(trans_ecu_responds) {
+                        // Variable timing (5-15ms) for realism
+                        delay(random(5, 15));
+
+                        // Transmission ECU - limited capabilities
+                        can_MsgTx.id = 0x7E9;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = 0x00;  // Only speed (0x0D)
+                        can_MsgTx.buf[4] = 0x20;  // Bit 5 = PID 0x0D
+                        can_MsgTx.buf[5] = 0x00;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
+
+                    if(body_ecu_responds) {
+                        delay(random(5, 15));
+
+                        // Body ECU - minimal capabilities
+                        can_MsgTx.id = 0x7EA;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = 0x00;  // No PIDs in 01-20
+                        can_MsgTx.buf[4] = 0x00;
+                        can_MsgTx.buf[5] = 0x00;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
+
+                    // Reset ID for next messages
+                    can_MsgTx.id = PID_REPLY;
                     break;
 
                 case PID_20_SUPPORTED:  // 0x20 - PIDs 21-40
@@ -345,10 +521,16 @@ uint8_t ecu_simClass::update(void)
                 case MONITOR_STATUS:  // 0x01
                     can_MsgTx.buf[0] = 0x06;
                     can_MsgTx.buf[2] = MONITOR_STATUS;
-                    can_MsgTx.buf[3] = 0x00;  // From Mercedes: 0007E500
-                    can_MsgTx.buf[4] = 0x07;
-                    can_MsgTx.buf[5] = 0xE5;
-                    can_MsgTx.buf[6] = 0x00;
+                    // OBD-II Standard: Byte 1 = MIL + DTC count
+                    // Bit 7: MIL on/off, Bits 0-6: Number of DTCs
+                    if(ecu.dtc == 1) {
+                        can_MsgTx.buf[3] = 0x82;  // MIL on (bit 7) + 2 DTCs (P0100, P0200)
+                    } else {
+                        can_MsgTx.buf[3] = 0x00;  // MIL off + 0 DTCs
+                    }
+                    can_MsgTx.buf[4] = 0x07;  // Monitor status
+                    can_MsgTx.buf[5] = 0xE5;  // Monitor status
+                    can_MsgTx.buf[6] = 0x00;  // Monitor status
                     can1.write(can_MsgTx);
                     break;
 
@@ -703,35 +885,54 @@ uint8_t ecu_simClass::update(void)
             switch(can_MsgRx.buf[2])  // PID is in buf[2]
             {
                 case VEH_INFO_SUPPORTED:  // 0x00 - Supported PIDs
-                    // Real response: 490055401000 and 490014400000
-                    // ISO-TP COMPLIANT: Single frame responses
-
-                    // First response (0x55 variant) - matches real ECU order
-                    can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
-                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;  // PID = 0x00 (NOT 0x55!)
-                    can_MsgTx.buf[3] = 0x55;  // Data byte 1 (bitmap)
-                    can_MsgTx.buf[4] = 0x40;  // Data byte 2 (bitmap)
-                    can_MsgTx.buf[5] = 0x10;  // Data byte 3 (bitmap)
-                    can_MsgTx.buf[6] = 0x00;  // Data byte 4 (bitmap)
-                    can1.write(can_MsgTx);
-
-                    // Small delay between responses (multi-module simulation)
-                    delay(5);
-
-                    // Second response (0x14 variant)
+                    // Multi-ECU response like real Mercedes
+                    // Primary ECU has most info
                     can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
                     can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;  // PID = 0x00
-                    can_MsgTx.buf[3] = 0x14;  // Data byte 1 (bitmap)
-                    can_MsgTx.buf[4] = 0x40;  // Data byte 2 (bitmap)
-                    can_MsgTx.buf[5] = 0x00;  // Data byte 3 (bitmap)
-                    can_MsgTx.buf[6] = 0x00;  // Data byte 4 (bitmap)
+                    can_MsgTx.buf[3] = 0x55;  // Bitmap: VIN(02), CAL_ID(04), CVN(06) supported
+                    can_MsgTx.buf[4] = 0x40;  // Bitmap: ECU_NAME(0A) supported
+                    can_MsgTx.buf[5] = 0x10;  // Bitmap: PERF_TRACK(08), AUX_IO(14) supported
+                    can_MsgTx.buf[6] = 0x00;  // Bitmap: remaining PIDs
                     can1.write(can_MsgTx);
+
+                    // Small delay like real CAN bus timing
+                    delay(5);
+
+                    // Second ECU (Transmission) - limited Mode 09 support
+                    can_MsgTx.id = 0x7E9;
+                    can_MsgTx.buf[0] = 0x06;
+                    can_MsgTx.buf[1] = MODE9_RESPONSE;
+                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
+                    can_MsgTx.buf[3] = 0x14;  // Less support than engine ECU
+                    can_MsgTx.buf[4] = 0x40;
+                    can_MsgTx.buf[5] = 0x00;
+                    can_MsgTx.buf[6] = 0x00;
+                    can1.write(can_MsgTx);
+
+                    // Another small delay
+                    delay(5);
+
+                    // Third ECU (Body/Chassis) - minimal Mode 09 support
+                    can_MsgTx.id = 0x7EA;
+                    can_MsgTx.buf[0] = 0x06;
+                    can_MsgTx.buf[1] = MODE9_RESPONSE;
+                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
+                    can_MsgTx.buf[3] = 0x14;  // Minimal support
+                    can_MsgTx.buf[4] = 0x40;
+                    can_MsgTx.buf[5] = 0x00;
+                    can_MsgTx.buf[6] = 0x00;
+                    can1.write(can_MsgTx);
+
+                    // Reset to primary ECU ID
+                    can_MsgTx.id = PID_REPLY;
                     break;
 
                 case VIN_REQUEST:  // 0x02 - Vehicle Identification Number
+                    {
                     // VIN: 4JGDA5HB7JB158144 (17 chars)
-                    // Real OBD response after reassembly: 490201344A474441354842374A42313538313434
-                    // Must use ISO-TP multi-frame for CAN transmission
+                    // Note: ELM327 handles ISO-TP flow control automatically
+
+                    // Send First Frame
                     can_MsgTx.buf[0] = 0x10;  // First frame
                     can_MsgTx.buf[1] = 0x14;  // 20 bytes total (3 header + 17 VIN)
                     can_MsgTx.buf[2] = MODE9_RESPONSE;
@@ -742,8 +943,9 @@ uint8_t ecu_simClass::update(void)
                     can_MsgTx.buf[7] = 0x47;  // 'G' in hex
                     can1.write(can_MsgTx);
 
-                    // Send continuation frame with rest of VIN
+                    // Small delay between frames for bus timing
                     delay(10);
+
                     can_MsgTx.buf[0] = 0x21;  // Consecutive frame 1
                     can_MsgTx.buf[1] = 0x44;  // ASCII 'D'
                     can_MsgTx.buf[2] = 0x41;  // ASCII 'A'
@@ -755,6 +957,7 @@ uint8_t ecu_simClass::update(void)
                     can1.write(can_MsgTx);
 
                     delay(10);
+
                     can_MsgTx.buf[0] = 0x22;  // Consecutive frame 2
                     can_MsgTx.buf[1] = 0x42;  // ASCII 'B'
                     can_MsgTx.buf[2] = 0x31;  // ASCII '1'
@@ -764,6 +967,7 @@ uint8_t ecu_simClass::update(void)
                     can_MsgTx.buf[6] = 0x34;  // ASCII '4'
                     can_MsgTx.buf[7] = 0x34;  // ASCII '4'
                     can1.write(can_MsgTx);
+                    }
                     break;
 
                 case CAL_ID_REQUEST:  // 0x04 - Calibration ID
@@ -804,7 +1008,8 @@ uint8_t ecu_simClass::update(void)
 
                 case CVN_REQUEST:  // 0x06 - Calibration Verification Number
                     // Real response: 490601EB854939
-                    can_MsgTx.buf[0] = 0x06;
+                    can_MsgTx.buf[0] = 0x07;  // Single frame, 7 bytes total
+                    can_MsgTx.buf[1] = MODE9_RESPONSE;
                     can_MsgTx.buf[2] = CVN_REQUEST;
                     can_MsgTx.buf[3] = 0x01;  // 1 CVN
                     can_MsgTx.buf[4] = 0xEB;
@@ -906,24 +1111,16 @@ uint8_t ecu_simClass::update(void)
             }
         }
 
+        /* REMOVED OLD STATIC MODE1 HANDLER - Using dynamic one above instead */
+        /*
         if(can_MsgRx.buf[1] == MODE1)
         {
             can_MsgTx.id = PID_REPLY;
-            can_MsgTx.len = 8; 
+            can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE1_RESPONSE;
-            
+
             switch(can_MsgRx.buf[2])
-            {   /* Details from http://en.wikipedia.org/wiki/OBD-II_PIDs */
-                case PID_SUPPORTED:
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xBF;  // Real vehicle: BFBEA893
-                    can_MsgTx.buf[4] = 0xBE;
-                    can_MsgTx.buf[5] = 0xA8;
-                    can_MsgTx.buf[6] = 0x93;
-                    can1.write(can_MsgTx);
-                    break;
-                
+            {
                 case MONITOR_STATUS:
                     can_MsgTx.buf[0] = 0x05;
                     can_MsgTx.buf[2] = MONITOR_STATUS;
@@ -1084,9 +1281,11 @@ uint8_t ecu_simClass::update(void)
                     break;
               }//switch
           }
+       */
        }
     }
-   return 0;
+
+    return 0;
 }
      
 freeze_frame_t freeze_frame[2];  // Global freeze frame storage

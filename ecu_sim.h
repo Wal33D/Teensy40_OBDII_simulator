@@ -82,6 +82,7 @@
  */
 #define PID_SUPPORTED       0x00        // Bit-encoded PIDs supported [01-20]
 #define MONITOR_STATUS      0x01        // Emissions monitor status since DTCs cleared
+#define DTC_FREEZE_FRAME    0x02        // DTC that caused freeze frame data storage
 #define FUEL_SYSTEM_STATUS  0x03        // Fuel system status (open/closed loop)
 #define CALCULATED_LOAD     0x04        // Engine load value for emissions calculations
 #define ENGINE_COOLANT_TEMP 0x05        // Coolant temp affects emissions control
