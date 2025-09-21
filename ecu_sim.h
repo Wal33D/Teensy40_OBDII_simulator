@@ -33,6 +33,35 @@
 #define OBD_STANDARD        0x1C
 #define ENGINE_RUN_TIME     0x1F
 
+// Extended Mode 01 PIDs
+#define PID_20_SUPPORTED    0x20
+#define DISTANCE_WITH_MIL   0x21
+#define FUEL_RAIL_PRESSURE  0x23
+#define EVAP_PURGE         0x2E
+#define FUEL_LEVEL         0x2F
+#define WARM_UPS           0x30
+#define DISTANCE_SINCE_CLR  0x31
+#define EVAP_VAPOR_PRESS   0x32
+#define BAROMETRIC_PRESS   0x33
+#define O2_SENSOR_1_B1     0x34
+#define O2_SENSOR_5_B2     0x38
+#define CAT_TEMP_B1S1      0x3C
+#define CAT_TEMP_B2S1      0x3D
+#define PID_40_SUPPORTED   0x40
+#define MONITOR_STATUS_CYC 0x41
+#define CONTROL_MOD_VOLT   0x42
+#define ABSOLUTE_LOAD      0x43
+#define COMMANDED_EQUIV    0x44
+#define REL_THROTTLE_POS   0x45
+#define AMBIENT_AIR_TEMP   0x46
+#define THROTTLE_POS_B     0x47
+#define ACCEL_POS_D        0x49
+#define ACCEL_POS_E        0x4A
+#define COMMANDED_THROTTLE 0x4C
+#define FUEL_TYPE          0x51
+#define SHORT_O2_TRIM_B1   0x56
+#define SHORT_O2_TRIM_B2   0x58
+
 #define MODE1_RESPONSE      0x41
 #define MODE2_RESPONSE      0x42
 #define MODE3_RESPONSE      0x43

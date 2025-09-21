@@ -1,42 +1,99 @@
 # Changelog
 
-All notable changes to the Teensy40 OBDII Simulator project will be documented in this file.
+## Changes from Original Fork
 
-## [2.0.0] - 2025-01-20
-### Added by Wal33D
-- **Mode 09 - Vehicle Information** - Complete implementation
-  - PID 0x02: Vehicle Identification Number (VIN) - 17 characters
-  - PID 0x04: Calibration ID - Multiple calibration IDs support
-  - PID 0x06: Calibration Verification Number (CVN)
-  - PID 0x0A: ECU Name - 20-character ECU identification
-  - PID 0x0D: In-Use Performance Tracking monitors
+### Original Implementation (skpang.co.uk)
+The original simulator had:
+- **Mode 01**: Only 8 PIDs (RPM, Speed, Coolant, MAF, O2, Throttle, PID Support, Monitor Status)
+- **Mode 03**: Request trouble codes
+- **Mode 04**: Clear trouble codes and MIL
+- Potentiometer-based value reading (static values)
+- Basic CAN communication
+- ~200 lines of code
 
-### Technical Enhancements by Wal33D
-- **ISO-TP Multi-Frame Protocol**: Full implementation for long message handling
-- **Flow Control**: Proper flow control frame processing (0x30, 0x00, 0x00)
-- **Dynamic Buffer Management**: Variable-length response handling
-- **Message Segmentation**: Automatic CAN frame segmentation for responses > 7 bytes
-- **Enhanced State Machine**: Robust message state tracking
+### Our Enhancements
 
-### Fixed by Wal33D
-- Multi-frame message assembly and transmission
-- Response timing for diagnostic tools compatibility
-- Buffer overflow protection for long messages
+#### Mode 01 - Complete Overhaul
+**Original**: 8 basic PIDs
+**Now**: 44 PIDs with real Mercedes-Benz data
 
-## [1.0.0] - 2022-12
-### Original Implementation by skpang
-- **Mode 01**: Show current data
-  - Engine RPM
-  - Vehicle Speed
-  - Engine Coolant Temperature
-  - Throttle Position
-  - Other standard PIDs
-- **Mode 03**: Show stored Diagnostic Trouble Codes
-- **Mode 04**: Clear Diagnostic Trouble Codes and stored values
-- CAN bus communication at 500kbps
-- Teensy 4.0 platform support
-- Basic OBD-II protocol compliance
+Added 36 new PIDs:
+- All fuel trim PIDs (0x06-0x09)
+- Intake pressure (0x0B)
+- Timing advance (0x0E)
+- Intake air temp (0x0F)
+- O2 sensors present (0x13)
+- Extended O2 sensors (0x15, 0x19)
+- OBD standards (0x1C)
+- Engine run time (0x1F)
+- PIDs 0x20-0x40 support
+- Distance with MIL (0x21)
+- Fuel rail pressure (0x23)
+- EVAP system (0x2E, 0x32)
+- Fuel level (0x2F)
+- Warm-ups (0x30)
+- Distance since cleared (0x31)
+- Barometric pressure (0x33)
+- Advanced O2 sensors (0x34, 0x38)
+- Catalyst temperatures (0x3C, 0x3D)
+- PIDs 0x40-0x60 support
+- Monitor status cycle (0x41)
+- Battery voltage (0x42)
+- Absolute load (0x43)
+- Commanded equiv ratio (0x44)
+- Relative throttle (0x45)
+- Ambient air temp (0x46)
+- Throttle position B (0x47)
+- Accelerator positions (0x49, 0x4A)
+- Commanded throttle (0x4C)
+- Fuel type (0x51)
+- O2 trim banks (0x56, 0x58)
 
-## Notes
+**Replaced static potentiometer reading with dynamic simulation:**
+- 5 driving states (IDLE, CITY, ACCELERATING, HIGHWAY, BRAKING)
+- Automatic state transitions every 10 seconds
+- Realistic value correlations (RPM/Speed/Load/Throttle)
+- Smooth value updates every 100ms
+- Dynamic MAF that scales with RPM
+- Oscillating O2 sensors (0.35-0.45V)
 
-Version 2.0.0 represents a major enhancement focused on Mode 09 implementation, adding critical vehicle identification capabilities that were not present in the original simulator. All Mode 09 functionality and ISO-TP multi-frame handling was implemented by Wal33D.
+#### Mode 02 - Freeze Frame (NEW)
+**Original**: Not implemented
+**Now**: Complete freeze frame support
+- Captures sensor values when DTC triggered
+- Stores 2 freeze frames
+- Responds to all Mode 02 PID requests
+- Proper frame number handling
+
+#### Mode 09 - Vehicle Information (NEW)
+**Original**: Not implemented
+**Now**: Full vehicle information mode
+- PID 0x00: Supported PIDs (multi-ECU simulation)
+- PID 0x02: VIN (4JGDA5HB7JB158144)
+- PID 0x04: Calibration ID (2769011200190170)
+- PID 0x06: CVN (EB854939)
+- PID 0x08: In-Use Performance Tracking
+- PID 0x0A: ECU Name (ECM-EngineControl)
+- PID 0x14: Auxiliary I/O Status
+- ISO-TP multi-frame protocol implementation
+- Flow control handling for long messages
+
+### Technical Improvements
+- **Code size**: From 199 lines to 1,085 lines (5.4x growth)
+- **Switch cases**: From 8 to 89 (81 new cases)
+- **Header additions**: 29 new PID definitions
+- **Protocol compliance**: Perfect ISO 15765-4 CAN format
+- **Response format**: Proper 41[PID][DATA] structure
+- **Data accuracy**: Based on real Mercedes-Benz captures
+
+### Data Source
+All values based on real vehicle data captured from:
+- **Vehicle**: Mercedes-Benz
+- **VIN**: 4JGDA5HB7JB158144
+- **Driving conditions**: Idle, City, Highway, Braking
+- **Data points**: 7,510+ logged responses
+
+---
+**Modified by**: Waleed Judah (Wal33D)
+**Email**: aquataze@yahoo.com
+**Original by**: skpang.co.uk
