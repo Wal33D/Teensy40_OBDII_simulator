@@ -1,9 +1,14 @@
 #include "Print.h"
-/* CAN Bus ECU Simulator
- *  
- * www.skpang.co.uk
+/*
+ * Advanced OBD-II CAN Bus ECU Simulator
  *
- * 
+ * Original: www.skpang.co.uk
+ * Enhanced by: Waleed Judah (Wal33D)
+ *
+ * This simulator implements the emissions monitoring aspects of OBD-II.
+ * OBD-II is primarily an emissions control program mandated by EPA/CARB,
+ * not a general diagnostic system. All data provided relates to emissions
+ * monitoring and control functions.
  */
 
 #include <Bounce.h>
@@ -29,18 +34,21 @@ uint8_t ecu_simClass::init(uint32_t baud) {
   can1.distribute();
   can1.mailboxStatus();
 
-  ecu.dtc = 0;
-  // Initialize freeze frame storage
+  ecu.dtc = 0;  // No emissions DTCs stored
+
+  // Initialize Mode 02 freeze frame storage
+  // Required by OBD-II to help diagnose intermittent emissions faults
   freeze_frame[0].data_stored = false;
   freeze_frame[1].data_stored = false;
 
-  // Initialize with realistic idle values from real vehicle
-  ecu.coolant_temp = 95 + 40;  // 95°C (135 in OBD format)
-  ecu.engine_rpm = 614 * 4;    // 614 RPM (2456 in OBD format)
-  ecu.vehicle_speed = 0;        // 0 km/h
-  ecu.throttle_position = 30;   // 11.8% (30/255)
-  ecu.maf_airflow = 0;          // Will be calculated from potentiometer
-  ecu.o2_voltage = 0x3C;        // 0.3V typical
+  // Initialize with realistic idle values from real Mercedes-Benz
+  // These represent a warmed-up engine meeting emissions standards
+  ecu.coolant_temp = 95 + 40;  // 95°C - optimal for catalytic converter
+  ecu.engine_rpm = 614 * 4;    // 614 RPM - typical idle for emissions
+  ecu.vehicle_speed = 0;        // 0 km/h - stationary
+  ecu.throttle_position = 30;   // 11.8% - idle throttle for emissions
+  ecu.maf_airflow = 0;          // Will be calculated dynamically
+  ecu.o2_voltage = 0x3C;        // 0.3V - indicates proper combustion
 
   return 0;
 }

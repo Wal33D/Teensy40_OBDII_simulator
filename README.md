@@ -1,70 +1,109 @@
 # Teensy 4.0 OBD-II CAN Bus ECU Simulator
 
-An advanced OBD-II ECU simulator for Teensy 4.0 with comprehensive vehicle diagnostics support, dynamic driving simulation, and real Mercedes-Benz data.
+An advanced OBD-II emissions monitoring simulator for Teensy 4.0 with comprehensive vehicle diagnostics support, dynamic driving simulation, and real Mercedes-Benz data.
+
+## Understanding OBD-II: An Emissions Program
+
+**Important Context**: OBD-II is fundamentally an emissions control program, not a general diagnostic system. Mandated by the EPA and CARB since January 1, 1996, OBD-II focuses exclusively on emissions-related functions:
+
+- **Covered Systems**: Engine, transmission, and drivetrain components that affect emissions
+- **Not Covered**: Body controls, ABS, airbags, lighting (manufacturer-specific, not OBD-II)
+- **Primary Purpose**: Monitor and ensure vehicles maintain emissions compliance throughout their operational life
+- **Standards**: Based on SAE J1979 recommendations, adopted by EPA for emissions monitoring
+
+This simulator accurately reproduces the emissions monitoring aspects of OBD-II, providing realistic data that matches real-world emissions testing scenarios.
 
 ## Features
 
-### Complete OBD-II Protocol Support
+### Complete OBD-II Emissions Protocol Support
 
-#### Mode 01 - Real-Time Data (44 PIDs)
-- **Engine Performance**: RPM, speed, coolant temperature, intake temperature
-- **Fuel System**: Fuel trims (STFT/LTFT), fuel level, fuel type, fuel rail pressure
-- **Emission Controls**: O2 sensors, catalyst temperatures, EVAP system
-- **Throttle/Load**: Throttle positions, absolute load, commanded throttle
-- **Environmental**: Ambient temperature, barometric pressure
-- **Diagnostic**: Monitor status, distance with MIL, warm-ups since cleared
+This simulator implements 5 of the 10 OBD-II modes, focusing on the emissions-critical modes:
 
-#### Mode 02 - Freeze Frame Data
-- Captures and stores sensor values when DTCs are triggered
-- Support for 2 independent freeze frames
-- Full PID response for frozen data
+#### Mode 01 - Request Current Powertrain Data (44 PIDs Implemented)
+**Purpose**: Provide access to current LIVE emissions-related data values. These must be actual sensor readings, not defaults or substitutes.
 
-#### Mode 03 - Diagnostic Trouble Codes
-- Returns stored trouble codes (P0118, P0130)
-- Proper DTC formatting
+- **Engine Performance**: RPM, speed, coolant temp (affects cold-start emissions), intake temp
+- **Fuel System**: Fuel trims (STFT/LTFT) for maintaining stoichiometric ratio (14.7:1)
+- **Emission Controls**: O2 sensors (primary feedback), catalyst temps, EVAP system
+- **Throttle/Load**: Engine load calculations for emissions optimization
+- **Environmental**: Ambient temp, barometric pressure (altitude compensation)
+- **Diagnostic**: Monitor status (shows which emissions tests have run)
 
-#### Mode 04 - Clear DTCs
-- Clears stored trouble codes and MIL light
-- Resets freeze frame data
+#### Mode 02 - Request Freeze Frame Data (Fully Implemented)
+**Purpose**: Access emissions-related data stored at the moment a DTC was set. Critical for diagnosing intermittent emissions problems.
 
-#### Mode 09 - Vehicle Information
-- **VIN**: 4JGDA5HB7JB158144 (Mercedes-Benz)
-- **Calibration ID**: 2769011200190170
-- **CVN**: EB854939
-- **ECU Name**: ECM-EngineControl
-- **Multi-frame ISO-TP support** for long messages
-- **In-Use Performance Tracking**
+- Captures exact conditions when emissions fault occurred
+- Stores 2 independent freeze frames for multiple DTCs
+- Preserves data for technician diagnosis even after fault clears
 
-### Dynamic Driving Simulation
+#### Mode 03 - Request Emissions-Related DTCs (Implemented)
+**Purpose**: Retrieve stored emissions-related "P" codes that have "matured" and triggered the MIL.
 
-The simulator cycles through realistic driving states:
+- Returns P0118 (Coolant sensor - affects emissions at cold start)
+- Returns P0130 (O2 sensor - critical for emissions feedback loop)
+- Only shows DTCs that affect emissions compliance
+
+#### Mode 04 - Clear/Reset Emissions Diagnostic Information (Implemented)
+**Purpose**: Comprehensive reset of ALL emissions-related diagnostic data.
+
+- Clears emissions DTCs and turns off MIL
+- Erases freeze frame data
+- Resets all emissions monitors to "not ready" status
+- Monitors must complete drive cycles to become ready again
+
+#### Mode 09 - Request Vehicle Information (Fully Implemented)
+**Purpose**: Access vehicle identification and calibration data for emissions compliance verification.
+
+- **VIN**: Links vehicle to its emissions certification (4JGDA5HB7JB158144)
+- **Calibration ID**: Identifies emissions software version (2769011200190170)
+- **CVN**: Checksum prevents tampering with emissions tune (EB854939)
+- **ECU Name**: Identifies responding emissions module (ECM-EngineControl)
+- **Performance Tracking**: Monitors how often emissions tests run
+- **ISO-TP Protocol**: Multi-frame support for long messages
+
+#### Modes Not Implemented (Not Critical for Basic Simulation)
+
+- **Mode 05**: O2 sensor test results (legacy, replaced by Mode 06 on CAN systems)
+- **Mode 06**: On-board monitoring test results (manufacturer-specific format)
+- **Mode 07**: Pending codes (first drive cycle after ECM reset)
+- **Mode 08**: Bidirectional control (mainly EVAP system testing)
+- **Mode 10**: Permanent codes (only module can clear after passing self-test)
+
+### Dynamic Emissions Simulation
+
+The simulator cycles through realistic driving states that affect emissions:
 
 1. **IDLE** (800 RPM, 0 km/h)
-   - Engine idling conditions
-   - Low load, minimal throttle
+   - Warmed-up engine at optimal temperature for catalytic converter (95°C)
+   - Closed-loop fuel control using O2 sensor feedback
+   - Low emissions state with minimal NOx and HC production
 
 2. **CITY** (1800 RPM, 45 km/h)
-   - Urban driving simulation
-   - Moderate load and throttle
+   - Simulates EPA FTP-75 urban driving cycle conditions
+   - Moderate NOx production, catalyst at working temperature
+   - Fuel trims actively adjusting for emissions compliance
 
 3. **ACCELERATING** (3500 RPM, 90 km/h)
-   - Highway acceleration
-   - High load, full throttle
+   - Higher emissions during power enrichment phase
+   - Tests catalyst efficiency under load conditions
+   - Temporary open-loop operation during WOT (wide-open throttle)
 
 4. **HIGHWAY** (2500 RPM, 120 km/h)
-   - Steady cruising speed
-   - Moderate load, partial throttle
+   - Steady-state emissions (HWFET cycle conditions)
+   - Optimal fuel efficiency and lowest emissions
+   - Lean cruise for reduced fuel consumption and CO2
 
 5. **BRAKING** (1200 RPM, 30 km/h)
-   - Deceleration conditions
-   - Low load, minimal throttle
+   - Deceleration fuel cut-off (DFCO) reduces emissions
+   - O2 sensor shows lean condition (>0.8V)
+   - Zero fuel consumption during engine braking
 
-**Features:**
-- Automatic state transitions every 10 seconds
-- Smooth value interpolation between states
-- Correlated engine parameters (RPM/Speed/Load/MAF)
-- Dynamic O2 sensor oscillation (0.35-0.45V)
-- Updates every 100ms for realistic behavior
+**Emissions Control Features:**
+- Automatic state transitions every 10 seconds (simulates EPA test cycles)
+- Smooth value interpolation prevents emissions spikes
+- Correlated parameters maintain proper stoichiometric air/fuel ratio
+- O2 sensor oscillation (0.35-0.45V) indicates proper closed-loop control
+- 100ms update rate matches real ECU scan frequency for emissions monitoring
 
 ## Hardware Requirements
 
