@@ -100,11 +100,14 @@ void ecu_simClass::update_pots(void)
 }
 
 
-uint8_t ecu_simClass::update(void) 
+uint8_t ecu_simClass::update(void)
 {
   CAN_message_t can_MsgRx,can_MsgTx;
 
-  if(can1.readMB(can_MsgRx)) 
+  // Process any ongoing ISO-TP transfers
+  isotp_process_transfers();
+
+  if(can1.readMB(can_MsgRx))
   {
      Serial.print(can_MsgRx.id,HEX);Serial.print(" len:");
      Serial.print(can_MsgRx.len);Serial.print(" ");
@@ -117,10 +120,42 @@ uint8_t ecu_simClass::update(void)
      Serial.print(can_MsgRx.buf[6]);Serial.print(" ");
      Serial.print(can_MsgRx.buf[7]);Serial.println(" ");
      
-     if (can_MsgRx.id == PID_REQUEST) 
+     // Handle ISO-TP Flow Control frames
+     if (can_MsgRx.id >= 0x7E0 && can_MsgRx.id <= 0x7E7 &&
+         (can_MsgRx.buf[0] & 0xF0) == ISO_TP_FLOW_CONTROL) {
+         // Flow control received - pass to ISO-TP handler
+         isotp_handle_flow_control(can_MsgRx.buf);
+         return 0;  // Flow control processed
+     }
+
+     if (can_MsgRx.id == PID_REQUEST)
      {
        digitalWrite(LED_green, HIGH);
        flash_led_tick = 0;
+
+       // Check if this is an ISO-TP First Frame from tester (for receiving multi-frame requests)
+       if ((can_MsgRx.buf[0] & 0xF0) == ISO_TP_FIRST_FRAME) {
+           // Multi-frame request from tester - send flow control
+           CAN_message_t flowControl;
+           flowControl.id = PID_REPLY_ENGINE;
+           flowControl.len = 8;
+           flowControl.buf[0] = ISO_TP_FLOW_CONTROL | FC_CONTINUE;  // 0x30 - Continue to send
+           flowControl.buf[1] = ISO_TP_BS;        // Block size (0 = send all)
+           flowControl.buf[2] = ISO_TP_STMIN;     // Separation time (10ms)
+           for(int i = 3; i < 8; i++) flowControl.buf[i] = 0x00;  // Padding
+           can1.write(flowControl);
+
+           // For now, we don't process multi-frame requests from tester
+           // This would be needed for Mode 0x2E (DynamicallyDefineDataIdentifier) etc.
+           return 0;
+       }
+
+       // Check if this is a Consecutive Frame from tester
+       if ((can_MsgRx.buf[0] & 0xF0) == ISO_TP_CONSEC_FRAME) {
+           // We're receiving consecutive frames from tester
+           // For now, just acknowledge and ignore
+           return 0;
+       }
 
         if(can_MsgRx.buf[1] == MODE3) // Request trouble codes
         {
@@ -238,9 +273,26 @@ uint8_t ecu_simClass::update(void)
 
         if(can_MsgRx.buf[1] == MODE1) // Live data
         {
-            can_MsgTx.id = PID_REPLY;
+            // Mode 1 responses - simulate multiple ECUs for scanner detection
             can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE1_RESPONSE;
+
+            // Determine which ECU responds based on PID
+            // For PID 00 (supported PIDs), multiple ECUs respond
+            // For other PIDs, only relevant ECU responds
+            bool sendEngineResponse = false;
+            bool sendTransResponse = false;
+
+            // Check which PIDs this ECU should respond to
+            if(can_MsgRx.buf[2] == PID_SUPPORTED || can_MsgRx.buf[2] == PID_20_SUPPORTED ||
+               can_MsgRx.buf[2] == PID_40_SUPPORTED) {
+                // All ECUs respond to supported PID requests
+                sendEngineResponse = true;
+                sendTransResponse = true;
+            } else {
+                // Engine ECU handles most PIDs
+                sendEngineResponse = true;
+            }
 
             // Realistic driving simulation with states
             enum DriveState { IDLE, CITY, ACCELERATING, HIGHWAY, BRAKING };
@@ -313,36 +365,82 @@ uint8_t ecu_simClass::update(void)
             switch(can_MsgRx.buf[2])  // PID is in buf[2]
             {
                 case PID_SUPPORTED:  // 0x00 - PIDs 01-20
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xBF;  // From Mercedes: BFBEA893
-                    can_MsgTx.buf[4] = 0xBE;
-                    can_MsgTx.buf[5] = 0xA8;
-                    can_MsgTx.buf[6] = 0x93;
-                    can1.write(can_MsgTx);
+                    if(sendEngineResponse) {
+                        can_MsgTx.id = PID_REPLY_ENGINE;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = 0xBF;  // Engine supports many PIDs
+                        can_MsgTx.buf[4] = 0xBE;
+                        can_MsgTx.buf[5] = 0xA8;
+                        can_MsgTx.buf[6] = 0x93;
+                        can1.write(can_MsgTx);
+                    }
+
+                    if(sendTransResponse) {
+                        delay(5);  // Small delay between ECU responses
+                        can_MsgTx.id = PID_REPLY_TRANS;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_SUPPORTED;
+                        can_MsgTx.buf[3] = 0x18;  // Trans supports fewer PIDs
+                        can_MsgTx.buf[4] = 0x00;
+                        can_MsgTx.buf[5] = 0x00;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
                     break;
 
                 case PID_20_SUPPORTED:  // 0x20 - PIDs 21-40
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_20_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xA0;  // From Mercedes: A007F119
-                    can_MsgTx.buf[4] = 0x07;
-                    can_MsgTx.buf[5] = 0xF1;
-                    can_MsgTx.buf[6] = 0x19;
-                    can1.write(can_MsgTx);
+                    if(sendEngineResponse) {
+                        can_MsgTx.id = PID_REPLY_ENGINE;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_20_SUPPORTED;
+                        can_MsgTx.buf[3] = 0xA0;
+                        can_MsgTx.buf[4] = 0x07;
+                        can_MsgTx.buf[5] = 0xF1;
+                        can_MsgTx.buf[6] = 0x19;
+                        can1.write(can_MsgTx);
+                    }
+
+                    if(sendTransResponse) {
+                        delay(5);
+                        can_MsgTx.id = PID_REPLY_TRANS;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_20_SUPPORTED;
+                        can_MsgTx.buf[3] = 0x00;  // Trans doesn't support these
+                        can_MsgTx.buf[4] = 0x00;
+                        can_MsgTx.buf[5] = 0x00;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
                     break;
 
                 case PID_40_SUPPORTED:  // 0x40 - PIDs 41-60
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_40_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xFE;  // From Mercedes: FED08500
-                    can_MsgTx.buf[4] = 0xD0;
-                    can_MsgTx.buf[5] = 0x85;
-                    can_MsgTx.buf[6] = 0x00;
-                    can1.write(can_MsgTx);
+                    if(sendEngineResponse) {
+                        can_MsgTx.id = PID_REPLY_ENGINE;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_40_SUPPORTED;
+                        can_MsgTx.buf[3] = 0xFE;
+                        can_MsgTx.buf[4] = 0xD0;
+                        can_MsgTx.buf[5] = 0x85;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
+
+                    if(sendTransResponse) {
+                        delay(5);
+                        can_MsgTx.id = PID_REPLY_TRANS;
+                        can_MsgTx.buf[0] = 0x06;
+                        can_MsgTx.buf[2] = PID_40_SUPPORTED;
+                        can_MsgTx.buf[3] = 0x00;  // Trans doesn't support these
+                        can_MsgTx.buf[4] = 0x00;
+                        can_MsgTx.buf[5] = 0x00;
+                        can_MsgTx.buf[6] = 0x00;
+                        can1.write(can_MsgTx);
+                    }
                     break;
 
                 case MONITOR_STATUS:  // 0x01
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x06;
                     can_MsgTx.buf[2] = MONITOR_STATUS;
                     can_MsgTx.buf[3] = 0x00;  // From Mercedes: 0007E500
@@ -353,6 +451,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case FUEL_SYSTEM_STATUS:  // 0x03
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = FUEL_SYSTEM_STATUS;
                     can_MsgTx.buf[3] = 0x02;  // From Mercedes: 0200
@@ -361,6 +460,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case CALCULATED_LOAD:  // 0x04
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = CALCULATED_LOAD;
                     can_MsgTx.buf[3] = currentLoad;  // Dynamic load value
@@ -368,6 +468,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case ENGINE_COOLANT_TEMP:  // 0x05
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = ENGINE_COOLANT_TEMP;
                     can_MsgTx.buf[3] = 0x87;  // From Mercedes: 95°C (0x87)
@@ -375,6 +476,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case SHORT_FUEL_TRIM_1:  // 0x06
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = SHORT_FUEL_TRIM_1;
                     can_MsgTx.buf[3] = 0x7F;  // From Mercedes: -0.8%
@@ -382,6 +484,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case LONG_FUEL_TRIM_1:  // 0x07
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = LONG_FUEL_TRIM_1;
                     can_MsgTx.buf[3] = 0x83;  // From Mercedes: 2.3%
@@ -410,6 +513,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case ENGINE_RPM:  // 0x0C
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = ENGINE_RPM;
                     can_MsgTx.buf[3] = (currentRPM >> 8) & 0xFF;
@@ -418,6 +522,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case VEHICLE_SPEED:  // 0x0D
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = VEHICLE_SPEED;
                     can_MsgTx.buf[3] = currentSpeed;  // Dynamic speed value
@@ -442,6 +547,7 @@ uint8_t ecu_simClass::update(void)
                     {
                         // MAF scales with RPM - typical 2-25 g/s
                         uint16_t maf_value = (currentRPM >> 4) + random(-5, 6);  // Scale with RPM
+                        can_MsgTx.id = PID_REPLY_ENGINE;
                         can_MsgTx.buf[0] = 0x04;
                         can_MsgTx.buf[2] = MAF_SENSOR;
                         can_MsgTx.buf[3] = (maf_value >> 8) & 0xFF;
@@ -451,6 +557,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case THROTTLE:  // 0x11
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = THROTTLE;
                     can_MsgTx.buf[3] = currentThrottle;  // Dynamic throttle value
@@ -689,122 +796,105 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 default:
-                    // Unknown PID - no response
+                    // For all other PIDs, use engine ECU ID
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     break;
             }
         }
 
         if(can_MsgRx.buf[1] == MODE9) // Vehicle information
         {
-            can_MsgTx.id = PID_REPLY;
+            // Default to Engine ECU response
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE9_RESPONSE;
+
+            // Check for ISO-TP flow control frames
+            if((can_MsgRx.buf[0] & 0xF0) == ISO_TP_FLOW_CONTROL) {
+                // Handle flow control - continue sending consecutive frames
+                // This would be implemented based on pending multi-frame transfers
+                // For now, we'll handle it in the multi-frame sections
+                return 0;
+            }
 
             switch(can_MsgRx.buf[2])  // PID is in buf[2]
             {
                 case VEH_INFO_SUPPORTED:  // 0x00 - Supported PIDs
-                    // Real response: 490055401000 and 490014400000
-                    // ISO-TP COMPLIANT: Single frame responses
-
-                    // First response (0x55 variant) - matches real ECU order
+                    // Simulate multiple ECUs responding with different CAN IDs
+                    // Engine ECU response (0x7E8)
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
-                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;  // PID = 0x00 (NOT 0x55!)
-                    can_MsgTx.buf[3] = 0x55;  // Data byte 1 (bitmap)
-                    can_MsgTx.buf[4] = 0x40;  // Data byte 2 (bitmap)
-                    can_MsgTx.buf[5] = 0x10;  // Data byte 3 (bitmap)
-                    can_MsgTx.buf[6] = 0x00;  // Data byte 4 (bitmap)
+                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
+                    can_MsgTx.buf[3] = 0x55;  // Supports: 0x02, 0x04, 0x06, 0x08, 0x0A, 0x14
+                    can_MsgTx.buf[4] = 0x40;  // Bit 6 set
+                    can_MsgTx.buf[5] = 0x10;  // Bit 4 set
+                    can_MsgTx.buf[6] = 0x00;
+                    can_MsgTx.buf[7] = 0x00;  // Padding
                     can1.write(can_MsgTx);
 
-                    // Small delay between responses (multi-module simulation)
+                    // Small delay between ECU responses (realistic timing)
                     delay(5);
 
-                    // Second response (0x14 variant)
+                    // Transmission ECU response (0x7E9) - different supported PIDs
+                    can_MsgTx.id = PID_REPLY_TRANS;
                     can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
-                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;  // PID = 0x00
-                    can_MsgTx.buf[3] = 0x14;  // Data byte 1 (bitmap)
-                    can_MsgTx.buf[4] = 0x40;  // Data byte 2 (bitmap)
-                    can_MsgTx.buf[5] = 0x00;  // Data byte 3 (bitmap)
-                    can_MsgTx.buf[6] = 0x00;  // Data byte 4 (bitmap)
-                    can1.write(can_MsgTx);
-                    break;
-
-                case VIN_REQUEST:  // 0x02 - Vehicle Identification Number
-                    // VIN: 4JGDA5HB7JB158144 (17 chars)
-                    // Real OBD response after reassembly: 490201344A474441354842374A42313538313434
-                    // Must use ISO-TP multi-frame for CAN transmission
-                    can_MsgTx.buf[0] = 0x10;  // First frame
-                    can_MsgTx.buf[1] = 0x14;  // 20 bytes total (3 header + 17 VIN)
-                    can_MsgTx.buf[2] = MODE9_RESPONSE;
-                    can_MsgTx.buf[3] = VIN_REQUEST;
-                    can_MsgTx.buf[4] = 0x01;  // 1 data item
-                    can_MsgTx.buf[5] = 0x34;  // '4' in hex
-                    can_MsgTx.buf[6] = 0x4A;  // 'J' in hex
-                    can_MsgTx.buf[7] = 0x47;  // 'G' in hex
-                    can1.write(can_MsgTx);
-
-                    // Send continuation frame with rest of VIN
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x21;  // Consecutive frame 1
-                    can_MsgTx.buf[1] = 0x44;  // ASCII 'D'
-                    can_MsgTx.buf[2] = 0x41;  // ASCII 'A'
-                    can_MsgTx.buf[3] = 0x35;  // ASCII '5'
-                    can_MsgTx.buf[4] = 0x48;  // ASCII 'H'
-                    can_MsgTx.buf[5] = 0x42;  // ASCII 'B'
-                    can_MsgTx.buf[6] = 0x37;  // ASCII '7'
-                    can_MsgTx.buf[7] = 0x4A;  // ASCII 'J'
-                    can1.write(can_MsgTx);
-
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x22;  // Consecutive frame 2
-                    can_MsgTx.buf[1] = 0x42;  // ASCII 'B'
-                    can_MsgTx.buf[2] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[3] = 0x35;  // ASCII '5'
-                    can_MsgTx.buf[4] = 0x38;  // ASCII '8'
-                    can_MsgTx.buf[5] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[6] = 0x34;  // ASCII '4'
-                    can_MsgTx.buf[7] = 0x34;  // ASCII '4'
-                    can1.write(can_MsgTx);
-                    break;
-
-                case CAL_ID_REQUEST:  // 0x04 - Calibration ID
-                    // Cal ID: 2769011200190170 (16 chars)
-                    // Real response: 49040132373639303131323030313930313730
-                    can_MsgTx.buf[0] = 0x10;  // First frame
-                    can_MsgTx.buf[1] = 0x13;  // 19 bytes total
-                    can_MsgTx.buf[2] = MODE9_RESPONSE;
-                    can_MsgTx.buf[3] = CAL_ID_REQUEST;
-                    can_MsgTx.buf[4] = 0x01;  // 1 data item
-                    can_MsgTx.buf[5] = 0x32;  // ASCII '2'
-                    can_MsgTx.buf[6] = 0x37;  // ASCII '7'
-                    can_MsgTx.buf[7] = 0x36;  // ASCII '6'
-                    can1.write(can_MsgTx);
-
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x21;  // Consecutive frame 1
-                    can_MsgTx.buf[1] = 0x39;  // ASCII '9'
-                    can_MsgTx.buf[2] = 0x30;  // ASCII '0'
-                    can_MsgTx.buf[3] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[4] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[5] = 0x32;  // ASCII '2'
-                    can_MsgTx.buf[6] = 0x30;  // ASCII '0'
-                    can_MsgTx.buf[7] = 0x30;  // ASCII '0'
-                    can1.write(can_MsgTx);
-
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x22;  // Consecutive frame 2
-                    can_MsgTx.buf[1] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[2] = 0x39;  // ASCII '9'
-                    can_MsgTx.buf[3] = 0x30;  // ASCII '0'
-                    can_MsgTx.buf[4] = 0x31;  // ASCII '1'
-                    can_MsgTx.buf[5] = 0x37;  // ASCII '7'
-                    can_MsgTx.buf[6] = 0x30;  // ASCII '0'
+                    can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
+                    can_MsgTx.buf[3] = 0x14;  // Supports: 0x02, 0x04 (different from engine)
+                    can_MsgTx.buf[4] = 0x40;
+                    can_MsgTx.buf[5] = 0x00;
+                    can_MsgTx.buf[6] = 0x00;
                     can_MsgTx.buf[7] = 0x00;  // Padding
                     can1.write(can_MsgTx);
                     break;
 
+                case VIN_REQUEST:  // 0x02 - Vehicle Identification Number
+                    {
+                        // Only start transfer if not already in progress
+                        if(isotp_tx.state != ISOTP_IDLE) break;
+
+                        // VIN: 4JGDA5HB7JB158144 (17 chars)
+                        uint8_t vin_data[20];  // 3 header + 17 VIN
+                        vin_data[0] = MODE9_RESPONSE;
+                        vin_data[1] = VIN_REQUEST;
+                        vin_data[2] = 0x01;  // 1 data item
+                        // VIN characters
+                        const char* vin = "4JGDA5HB7JB158144";
+                        for(int i = 0; i < 17; i++) {
+                            vin_data[i+3] = vin[i];
+                        }
+
+                        // Initialize ISO-TP transfer
+                        isotp_init_transfer(vin_data, 20, PID_REPLY_ENGINE, MODE9, VIN_REQUEST);
+                        isotp_send_first_frame();
+                    }
+                    break;
+
+                case CAL_ID_REQUEST:  // 0x04 - Calibration ID
+                    {
+                        // Only start transfer if not already in progress
+                        if(isotp_tx.state != ISOTP_IDLE) break;
+
+                        // Cal ID: 2769011200190170 (16 chars)
+                        uint8_t cal_data[19];  // 3 header + 16 cal ID
+                        cal_data[0] = MODE9_RESPONSE;
+                        cal_data[1] = CAL_ID_REQUEST;
+                        cal_data[2] = 0x01;  // 1 data item
+                        // Calibration ID
+                        const char* cal_id = "2769011200190170";
+                        for(int i = 0; i < 16; i++) {
+                            cal_data[i+3] = cal_id[i];
+                        }
+
+                        // Initialize ISO-TP transfer
+                        isotp_init_transfer(cal_data, 19, PID_REPLY_ENGINE, MODE9, CAL_ID_REQUEST);
+                        isotp_send_first_frame();
+                    }
+                    break;
+
                 case CVN_REQUEST:  // 0x06 - Calibration Verification Number
-                    // Real response: 490601EB854939
-                    can_MsgTx.buf[0] = 0x06;
+                    // Single frame response
+                    can_MsgTx.id = PID_REPLY_ENGINE;
+                    can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
                     can_MsgTx.buf[2] = CVN_REQUEST;
                     can_MsgTx.buf[3] = 0x01;  // 1 CVN
                     can_MsgTx.buf[4] = 0xEB;
@@ -815,92 +905,74 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case ECU_NAME_REQUEST:  // 0x0A - ECU Name
-                    // ECU Name: "ECM-EngineControl"
-                    // Real response: 490A0145434D002D456E67696E65436F6E74726F6C0000
-                    can_MsgTx.buf[0] = 0x10;  // First frame
-                    can_MsgTx.buf[1] = 0x17;  // 23 bytes total
-                    can_MsgTx.buf[2] = MODE9_RESPONSE;
-                    can_MsgTx.buf[3] = ECU_NAME_REQUEST;
-                    can_MsgTx.buf[4] = 0x01;  // 1 data item
-                    can_MsgTx.buf[5] = 0x45;  // ASCII 'E'
-                    can_MsgTx.buf[6] = 0x43;  // ASCII 'C'
-                    can_MsgTx.buf[7] = 0x4D;  // ASCII 'M'
-                    can1.write(can_MsgTx);
+                    {
+                        // Only start transfer if not already in progress
+                        if(isotp_tx.state != ISOTP_IDLE) break;
 
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x21;  // Consecutive frame 1
-                    can_MsgTx.buf[1] = 0x00;  // Separator
-                    can_MsgTx.buf[2] = 0x2D;  // ASCII '-'
-                    can_MsgTx.buf[3] = 0x45;  // ASCII 'E'
-                    can_MsgTx.buf[4] = 0x6E;  // ASCII 'n'
-                    can_MsgTx.buf[5] = 0x67;  // ASCII 'g'
-                    can_MsgTx.buf[6] = 0x69;  // ASCII 'i'
-                    can_MsgTx.buf[7] = 0x6E;  // ASCII 'n'
-                    can1.write(can_MsgTx);
+                        // ECU Name: "ECM-EngineControl"
+                        uint8_t name_data[23];  // Total message
+                        name_data[0] = MODE9_RESPONSE;
+                        name_data[1] = ECU_NAME_REQUEST;
+                        name_data[2] = 0x01;  // 1 data item
+                        // ECU Name with separator
+                        name_data[3] = 'E';
+                        name_data[4] = 'C';
+                        name_data[5] = 'M';
+                        name_data[6] = 0x00;  // Separator
+                        name_data[7] = '-';
+                        const char* name_rest = "EngineControl";
+                        for(int i = 0; i < 13; i++) {
+                            name_data[i+8] = name_rest[i];
+                        }
+                        name_data[21] = 0x00;  // Null terminator
+                        name_data[22] = 0x00;  // Padding
 
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x22;  // Consecutive frame 2
-                    can_MsgTx.buf[1] = 0x65;  // ASCII 'e'
-                    can_MsgTx.buf[2] = 0x43;  // ASCII 'C'
-                    can_MsgTx.buf[3] = 0x6F;  // ASCII 'o'
-                    can_MsgTx.buf[4] = 0x6E;  // ASCII 'n'
-                    can_MsgTx.buf[5] = 0x74;  // ASCII 't'
-                    can_MsgTx.buf[6] = 0x72;  // ASCII 'r'
-                    can_MsgTx.buf[7] = 0x6F;  // ASCII 'o'
-                    can1.write(can_MsgTx);
-
-                    delay(10);
-                    can_MsgTx.buf[0] = 0x23;  // Consecutive frame 3
-                    can_MsgTx.buf[1] = 0x6C;  // ASCII 'l'
-                    can_MsgTx.buf[2] = 0x00;  // Null terminator
-                    can_MsgTx.buf[3] = 0x00;  // Padding
-                    can_MsgTx.buf[4] = 0x00;  // Padding
-                    can_MsgTx.buf[5] = 0x00;  // Padding
-                    can_MsgTx.buf[6] = 0x00;  // Padding
-                    can_MsgTx.buf[7] = 0x00;  // Padding
-                    can1.write(can_MsgTx);
+                        // Initialize ISO-TP transfer
+                        isotp_init_transfer(name_data, 23, PID_REPLY_ENGINE, MODE9, ECU_NAME_REQUEST);
+                        isotp_send_first_frame();
+                    }
                     break;
 
                 case PERF_TRACK_REQUEST:  // 0x08 - Performance Tracking
-                    // Real vehicle sends 43 bytes (86 hex chars)
-                    // ISO-TP COMPLIANT: Multi-frame sequence required
+                    {
+                        // Only start transfer if not already in progress
+                        if(isotp_tx.state != ISOTP_IDLE) break;
 
-                    // First frame (FF) - ISO-TP format
-                    can_MsgTx.buf[0] = 0x10;  // First frame PCI
-                    can_MsgTx.buf[1] = 0x2B;  // Length = 43 bytes (0x2B)
-                    can_MsgTx.buf[2] = MODE9_RESPONSE;      // 0x49
-                    can_MsgTx.buf[3] = PERF_TRACK_REQUEST;  // 0x08
-                    can_MsgTx.buf[4] = 0x14;  // Real data byte 1
-                    can_MsgTx.buf[5] = 0x10;  // Real data byte 2
-                    can_MsgTx.buf[6] = 0x62;  // Real data byte 3
-                    can_MsgTx.buf[7] = 0x2E;  // Real data byte 4
-                    can1.write(can_MsgTx);
+                        // Performance tracking data: 43 bytes total
+                        uint8_t perf_data[43];
+                        perf_data[0] = MODE9_RESPONSE;
+                        perf_data[1] = PERF_TRACK_REQUEST;
 
-                    // ISO-TP requires 10ms delay between frames
-                    delay(10);
+                        // Real performance tracking data from Mercedes-Benz
+                        uint8_t perf_values[] = {
+                            0x14, 0x10, 0x62, 0x2E, 0x4C, 0x17, 0x69, 0x10,
+                            0x62, 0x17, 0x04, 0xD0, 0x10, 0x10, 0x06, 0x2E,
+                            0x00, 0x17, 0x00, 0x00, 0xD0, 0x00, 0x10, 0x00,
+                            0x2E, 0x00, 0x11, 0x00, 0x00, 0xD0, 0x00, 0x0E,
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0xD0, 0x00, 0x00,
+                            0x00
+                        };
 
-                    // Consecutive frame 1 (CF1)
-                    can_MsgTx.buf[0] = 0x21;  // CF sequence 1
-                    can_MsgTx.buf[1] = 0x4C;  // Continue real data
-                    can_MsgTx.buf[2] = 0x17;
-                    can_MsgTx.buf[3] = 0x69;
-                    can_MsgTx.buf[4] = 0x10;
-                    can_MsgTx.buf[5] = 0x62;
-                    can_MsgTx.buf[6] = 0x17;
-                    can_MsgTx.buf[7] = 0x04;
-                    can1.write(can_MsgTx);
+                        for(int i = 0; i < 41; i++) {
+                            perf_data[i+2] = perf_values[i];
+                        }
 
-                    // Note: Full implementation would need 6 consecutive frames total
-                    // Simplified for emulator - most scanners accept partial data
+                        // Initialize ISO-TP transfer
+                        isotp_init_transfer(perf_data, 43, PID_REPLY_ENGINE, MODE9, PERF_TRACK_REQUEST);
+                        isotp_send_first_frame();
+                    }
                     break;
 
                 case AUX_IO_REQUEST:  // 0x14 - Auxiliary I/O Status
-                    // Real response: 4914010018 (5 bytes total)
-                    can_MsgTx.buf[0] = 0x05;  // 5 bytes of data
+                    // Single frame response
+                    can_MsgTx.id = PID_REPLY_ENGINE;
+                    can_MsgTx.buf[0] = 0x05;  // Single frame, 5 bytes
                     can_MsgTx.buf[2] = AUX_IO_REQUEST;
                     can_MsgTx.buf[3] = 0x01;  // 1 data item
                     can_MsgTx.buf[4] = 0x00;
                     can_MsgTx.buf[5] = 0x18;
+                    can_MsgTx.buf[6] = 0x00;  // Padding
+                    can_MsgTx.buf[7] = 0x00;  // Padding
                     can1.write(can_MsgTx);
                     break;
             }
@@ -908,10 +980,13 @@ uint8_t ecu_simClass::update(void)
 
         if(can_MsgRx.buf[1] == MODE1)
         {
-            can_MsgTx.id = PID_REPLY;
-            can_MsgTx.len = 8; 
+            // This appears to be duplicate Mode 1 handling - remove it
+            // The main Mode 1 handler above should handle everything
+            // This section seems to be legacy code
+            can_MsgTx.id = PID_REPLY_ENGINE;  // Use proper ECU ID
+            can_MsgTx.len = 8;
             can_MsgTx.buf[1] = MODE1_RESPONSE;
-            
+
             switch(can_MsgRx.buf[2])
             {   /* Details from http://en.wikipedia.org/wiki/OBD-II_PIDs */
                 case PID_SUPPORTED:
@@ -1090,4 +1165,124 @@ uint8_t ecu_simClass::update(void)
 }
      
 freeze_frame_t freeze_frame[2];  // Global freeze frame storage
+isotp_transfer_t isotp_tx;        // Global ISO-TP transmit context
 ecu_simClass ecu_sim;
+
+// ISO-TP Implementation Functions
+void ecu_simClass::isotp_init_transfer(uint8_t* data, uint16_t len, uint16_t can_id, uint8_t mode, uint8_t pid) {
+    isotp_tx.state = ISOTP_IDLE;
+    isotp_tx.total_len = len;
+    isotp_tx.offset = 0;
+    isotp_tx.seq_num = 1;
+    isotp_tx.block_size = 0;
+    isotp_tx.blocks_sent = 0;
+    isotp_tx.st_min = 0;
+    isotp_tx.response_id = can_id;
+    isotp_tx.mode = mode;
+    isotp_tx.pid = pid;
+    memcpy(isotp_tx.data, data, len);
+}
+
+void ecu_simClass::isotp_send_first_frame(void) {
+    CAN_message_t msg;
+    msg.id = isotp_tx.response_id;
+    msg.len = 8;
+    msg.buf[0] = 0x10 | ((isotp_tx.total_len >> 8) & 0x0F);  // First frame with length high nibble
+    msg.buf[1] = isotp_tx.total_len & 0xFF;                  // Length low byte
+
+    // Copy first 6 bytes of data
+    for(int i = 0; i < 6 && i < isotp_tx.total_len; i++) {
+        msg.buf[i+2] = isotp_tx.data[i];
+    }
+
+    isotp_tx.offset = 6;  // We've sent 6 bytes
+    isotp_tx.state = ISOTP_WAIT_FC;  // Wait for flow control
+    isotp_tx.fc_wait_start = millis();
+
+    can1.write(msg);
+}
+
+void ecu_simClass::isotp_handle_flow_control(uint8_t* data) {
+    if(isotp_tx.state != ISOTP_WAIT_FC && isotp_tx.state != ISOTP_WAIT_NEXT_FC) {
+        return;  // Not waiting for flow control
+    }
+
+    uint8_t fs = data[0] & 0x0F;  // Flow Status
+
+    if(fs == 0) {  // Continue to send
+        isotp_tx.block_size = data[1];  // 0 means send all remaining
+        isotp_tx.st_min = data[2];      // Minimum separation time
+        isotp_tx.blocks_sent = 0;
+        isotp_tx.state = ISOTP_SENDING_CF;
+        isotp_tx.last_frame_time = millis();
+    } else if(fs == 1) {  // Wait
+        isotp_tx.state = ISOTP_WAIT_FC;  // Keep waiting
+    } else if(fs == 2) {  // Overflow/Abort
+        isotp_tx.state = ISOTP_ERROR;
+    }
+}
+
+void ecu_simClass::isotp_send_consecutive_frame(void) {
+    if(isotp_tx.state != ISOTP_SENDING_CF || isotp_tx.offset >= isotp_tx.total_len) {
+        return;
+    }
+
+    // Check timing requirement
+    uint32_t now = millis();
+    uint32_t elapsed = now - isotp_tx.last_frame_time;
+
+    // STmin handling: 0x00-0x7F = 0-127ms, 0xF1-0xF9 = 100-900us (we'll treat as 1-9ms)
+    uint32_t required_delay = isotp_tx.st_min;
+    if(isotp_tx.st_min >= 0xF1 && isotp_tx.st_min <= 0xF9) {
+        required_delay = (isotp_tx.st_min - 0xF0);  // 1-9ms for simplicity
+    }
+
+    if(elapsed < required_delay) {
+        return;  // Not time yet
+    }
+
+    CAN_message_t msg;
+    msg.id = isotp_tx.response_id;
+    msg.len = 8;
+    msg.buf[0] = 0x20 | (isotp_tx.seq_num & 0x0F);  // Consecutive frame
+
+    // Copy up to 7 bytes of data
+    int bytes_to_copy = min(7, isotp_tx.total_len - isotp_tx.offset);
+    for(int i = 0; i < 7; i++) {
+        if(i < bytes_to_copy) {
+            msg.buf[i+1] = isotp_tx.data[isotp_tx.offset + i];
+        } else {
+            msg.buf[i+1] = 0x00;  // Padding
+        }
+    }
+
+    isotp_tx.offset += bytes_to_copy;
+    isotp_tx.seq_num = (isotp_tx.seq_num + 1) & 0x0F;
+    isotp_tx.blocks_sent++;
+    isotp_tx.last_frame_time = now;
+
+    can1.write(msg);
+
+    // Check if we've sent all data
+    if(isotp_tx.offset >= isotp_tx.total_len) {
+        isotp_tx.state = ISOTP_IDLE;  // Transfer complete
+    }
+    // Check if we need to wait for next flow control
+    else if(isotp_tx.block_size > 0 && isotp_tx.blocks_sent >= isotp_tx.block_size) {
+        isotp_tx.state = ISOTP_WAIT_NEXT_FC;
+        isotp_tx.fc_wait_start = now;
+    }
+}
+
+void ecu_simClass::isotp_process_transfers(void) {
+    // Timeout check for flow control
+    if((isotp_tx.state == ISOTP_WAIT_FC || isotp_tx.state == ISOTP_WAIT_NEXT_FC) &&
+       (millis() - isotp_tx.fc_wait_start) > 1000) {  // 1 second timeout
+        isotp_tx.state = ISOTP_IDLE;  // Abort transfer
+    }
+
+    // Continue sending consecutive frames if in progress
+    if(isotp_tx.state == ISOTP_SENDING_CF) {
+        isotp_send_consecutive_frame();
+    }
+}

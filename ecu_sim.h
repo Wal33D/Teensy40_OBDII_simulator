@@ -152,8 +152,35 @@
 #define PERF_TRACK_REQUEST  0x08        // In-use performance tracking for monitors
 #define ECU_NAME_REQUEST    0x0A        // ECU name/identifier
 #define AUX_IO_REQUEST      0x14        // Auxiliary input/output status
-#define PID_REQUEST         0x7DF
-#define PID_REPLY           0x7E8
+
+/*
+ * CAN ID Definitions for OBD-II Protocol
+ * OBD-II uses specific CAN IDs for diagnostic communication:
+ * - 0x7DF: Functional (broadcast) request to all ECUs
+ * - 0x7E0-0x7E7: Physical request to specific ECUs
+ * - 0x7E8-0x7EF: Response from ECUs (8 possible modules)
+ */
+#define PID_REQUEST         0x7DF       // Functional broadcast request
+#define PID_REPLY_ENGINE    0x7E8       // Engine/Powertrain ECU response
+#define PID_REPLY_TRANS     0x7E9       // Transmission ECU response
+#define PID_REPLY_HYBRID    0x7EA       // Hybrid/Electric ECU response
+#define PID_REPLY_CHASSIS   0x7EB       // Chassis/Body ECU response
+#define PID_REPLY           PID_REPLY_ENGINE  // Default reply ID (engine)
+
+// ISO-TP (ISO 15765-2) Protocol Control Information
+#define ISO_TP_SINGLE_FRAME    0x00     // Single frame (0-7 data bytes)
+#define ISO_TP_FIRST_FRAME     0x10     // First frame of multi-frame
+#define ISO_TP_CONSEC_FRAME    0x20     // Consecutive frame
+#define ISO_TP_FLOW_CONTROL    0x30     // Flow control frame
+
+// Flow Control parameters
+#define FC_CONTINUE         0x00        // Continue to send
+#define FC_WAIT             0x01        // Wait for next flow control
+#define FC_OVERFLOW         0x02        // Buffer overflow
+// ISO-TP timing parameters (milliseconds)
+#define ISO_TP_STMIN        10          // Minimum separation time between frames
+#define ISO_TP_BS           0           // Block size (0 = send all frames)
+
 static const int LED_red = 9;
 static const int LED_green = 8;
 
@@ -167,6 +194,38 @@ static const int AN3 = 2;
 static const int AN4 = 3;
 static const int AN5 = 6;
 static const int AN6 = 7;
+
+/*
+ * ISO-TP Transfer State Machine
+ * Manages multi-frame message transfers per ISO 15765-2
+ */
+typedef enum {
+    ISOTP_IDLE,           // No transfer in progress
+    ISOTP_WAIT_FC,        // Waiting for flow control after sending first frame
+    ISOTP_SENDING_CF,     // Sending consecutive frames
+    ISOTP_WAIT_NEXT_FC,   // Waiting for next flow control (block size reached)
+    ISOTP_ERROR           // Transfer error/abort
+} isotp_state_t;
+
+/*
+ * ISO-TP Transfer Context
+ * Maintains state for ongoing multi-frame transfers
+ */
+typedef struct {
+    isotp_state_t state;          // Current transfer state
+    uint8_t data[256];            // Buffer for complete message
+    uint16_t total_len;           // Total message length
+    uint16_t offset;              // Current position in buffer
+    uint8_t seq_num;              // Next consecutive frame sequence number
+    uint8_t block_size;           // Frames to send before next FC
+    uint8_t blocks_sent;          // Frames sent in current block
+    uint8_t st_min;               // Minimum separation time (ms)
+    uint32_t last_frame_time;     // Timestamp of last frame sent
+    uint32_t fc_wait_start;       // When we started waiting for FC
+    uint16_t response_id;         // CAN ID to use for responses
+    uint8_t mode;                 // OBD mode being serviced
+    uint8_t pid;                  // PID being serviced
+} isotp_transfer_t;
 
 /*
  * ECU Data Structure
@@ -200,6 +259,7 @@ typedef struct{
 
 extern ecu_t ecu;
 extern freeze_frame_t freeze_frame[2];  // Support 2 freeze frames
+extern isotp_transfer_t isotp_tx;        // ISO-TP transmit context
 
 class ecu_simClass
 {
@@ -210,6 +270,11 @@ class ecu_simClass
   uint8_t init(uint32_t baud);
   uint8_t update(void);
   void update_pots(void);
+  void isotp_init_transfer(uint8_t* data, uint16_t len, uint16_t can_id, uint8_t mode, uint8_t pid);
+  void isotp_send_first_frame(void);
+  void isotp_handle_flow_control(uint8_t* data);
+  void isotp_send_consecutive_frame(void);
+  void isotp_process_transfers(void);
 
 private:
   
