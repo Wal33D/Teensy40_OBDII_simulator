@@ -492,6 +492,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case SHORT_FUEL_TRIM_2:  // 0x08
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = SHORT_FUEL_TRIM_2;
                     can_MsgTx.buf[3] = 0x7F;  // From Mercedes: -0.8%
@@ -499,6 +500,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case LONG_FUEL_TRIM_2:  // 0x09
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = LONG_FUEL_TRIM_2;
                     can_MsgTx.buf[3] = 0x7B;  // From Mercedes: -3.9%
@@ -506,6 +508,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case INTAKE_PRESSURE:  // 0x0B
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = INTAKE_PRESSURE;
                     can_MsgTx.buf[3] = 0x21;  // From Mercedes: 33 kPa
@@ -530,6 +533,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case TIMING_ADVANCE:  // 0x0E
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = TIMING_ADVANCE;
                     can_MsgTx.buf[3] = 0x8C;  // From Mercedes: 6.0°
@@ -537,6 +541,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case INTAKE_AIR_TEMP:  // 0x0F
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = INTAKE_AIR_TEMP;
                     can_MsgTx.buf[3] = 0x65;  // From Mercedes: 61°C
@@ -565,6 +570,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case O2_SENSORS_PRESENT:  // 0x13
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = O2_SENSORS_PRESENT;
                     can_MsgTx.buf[3] = 0x33;  // From Mercedes
@@ -572,6 +578,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case O2_SENSOR_2_B1:  // 0x15
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = O2_SENSOR_2_B1;
                     can_MsgTx.buf[3] = o2_voltage;  // Dynamic O2 voltage
@@ -580,6 +587,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case O2_SENSOR_2_B2:  // 0x19
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = O2_SENSOR_2_B2;
                     can_MsgTx.buf[3] = o2_voltage + 5;  // Slightly different for Bank 2
@@ -588,6 +596,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case OBD_STANDARD:  // 0x1C
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = OBD_STANDARD;
                     can_MsgTx.buf[3] = 0x03;  // From Mercedes
@@ -595,6 +604,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case ENGINE_RUN_TIME:  // 0x1F
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = ENGINE_RUN_TIME;
                     can_MsgTx.buf[3] = 0x2A;  // From Mercedes: 10926 sec
@@ -603,6 +613,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case DISTANCE_WITH_MIL:  // 0x21
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = DISTANCE_WITH_MIL;
                     can_MsgTx.buf[3] = 0x00;  // From Mercedes: 0 km
@@ -611,6 +622,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case FUEL_RAIL_PRESSURE:  // 0x23
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x04;
                     can_MsgTx.buf[2] = FUEL_RAIL_PRESSURE;
                     can_MsgTx.buf[3] = 0x05;  // From Mercedes: 117.4 kPa
@@ -619,6 +631,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case EVAP_PURGE:  // 0x2E
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = EVAP_PURGE;
                     can_MsgTx.buf[3] = 0x79;  // From Mercedes: 47.5%
@@ -626,6 +639,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case FUEL_LEVEL:  // 0x2F
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = FUEL_LEVEL;
                     can_MsgTx.buf[3] = 0x39;  // From Mercedes: 22.4%
@@ -633,6 +647,7 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 case WARM_UPS:  // 0x30
+                    can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x03;
                     can_MsgTx.buf[2] = WARM_UPS;
                     can_MsgTx.buf[3] = 0xFF;  // From Mercedes
