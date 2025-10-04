@@ -130,7 +130,8 @@ uint8_t ecu_simClass::update(void)
          return 0;  // Flow control processed
      }
 
-     if (can_MsgRx.id == PID_REQUEST)
+     // Handle both broadcast (0x7DF) and ECU-specific (0x7E0) requests
+     if (can_MsgRx.id == PID_REQUEST || can_MsgRx.id == PID_REQUEST_ENGINE)
      {
        digitalWrite(LED_green, HIGH);
        flash_led_tick = 0;

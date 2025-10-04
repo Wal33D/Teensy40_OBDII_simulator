@@ -161,6 +161,8 @@
  * - 0x7E8-0x7EF: Response from ECUs (8 possible modules)
  */
 #define PID_REQUEST         0x7DF       // Functional broadcast request
+#define PID_REQUEST_ENGINE  0x7E0       // Physical request to Engine ECU
+#define PID_REQUEST_TRANS   0x7E1       // Physical request to Transmission ECU
 #define PID_REPLY_ENGINE    0x7E8       // Engine/Powertrain ECU response
 #define PID_REPLY_TRANS     0x7E9       // Transmission ECU response
 #define PID_REPLY_HYBRID    0x7EA       // Hybrid/Electric ECU response
