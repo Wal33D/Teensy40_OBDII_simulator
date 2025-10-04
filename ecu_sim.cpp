@@ -375,7 +375,6 @@ uint8_t ecu_simClass::update(void)
                         can_MsgTx.buf[6] = 0x93;
                         can1.write(can_MsgTx);
                     }
-
                     if(sendTransResponse) {
                         delay(5);  // Small delay between ECU responses
                         can_MsgTx.id = PID_REPLY_TRANS;
@@ -400,7 +399,6 @@ uint8_t ecu_simClass::update(void)
                         can_MsgTx.buf[6] = 0x19;
                         can1.write(can_MsgTx);
                     }
-
                     if(sendTransResponse) {
                         delay(5);
                         can_MsgTx.id = PID_REPLY_TRANS;
@@ -425,7 +423,6 @@ uint8_t ecu_simClass::update(void)
                         can_MsgTx.buf[6] = 0x00;
                         can1.write(can_MsgTx);
                     }
-
                     if(sendTransResponse) {
                         delay(5);
                         can_MsgTx.id = PID_REPLY_TRANS;
@@ -443,8 +440,9 @@ uint8_t ecu_simClass::update(void)
                     can_MsgTx.id = PID_REPLY_ENGINE;
                     can_MsgTx.buf[0] = 0x06;
                     can_MsgTx.buf[2] = MONITOR_STATUS;
-                    can_MsgTx.buf[3] = 0x00;  // From Mercedes: 0007E500
-                    can_MsgTx.buf[4] = 0x07;
+                    if(ecu.dtc == 1) can_MsgTx.buf[3] = 0x82;  // MIL ON (bit 7 set) if DTC present
+                        else can_MsgTx.buf[3] = 0x00;          // MIL OFF if no DTC
+                    can_MsgTx.buf[4] = 0x07;  // From Mercedes: 0007E500
                     can_MsgTx.buf[5] = 0xE5;
                     can_MsgTx.buf[6] = 0x00;
                     can1.write(can_MsgTx);
@@ -811,8 +809,18 @@ uint8_t ecu_simClass::update(void)
                     break;
 
                 default:
-                    // For all other PIDs, use engine ECU ID
+                    // Send negative response for unsupported PIDs (7F response)
                     can_MsgTx.id = PID_REPLY_ENGINE;
+                    can_MsgTx.len = 8;
+                    can_MsgTx.buf[0] = 0x03;  // Length: 3 bytes
+                    can_MsgTx.buf[1] = 0x7F;  // Negative Response Service Identifier
+                    can_MsgTx.buf[2] = 0x01;  // Echo requested service (Mode 1)
+                    can_MsgTx.buf[3] = can_MsgRx.buf[2];  // Echo requested PID
+                    can_MsgTx.buf[4] = 0x12;  // NRC: requestSequenceError (PID not supported)
+                    can_MsgTx.buf[5] = 0x00;  // Padding
+                    can_MsgTx.buf[6] = 0x00;  // Padding
+                    can_MsgTx.buf[7] = 0x00;  // Padding
+                    can1.write(can_MsgTx);
                     break;
             }
         }
@@ -993,187 +1001,6 @@ uint8_t ecu_simClass::update(void)
             }
         }
 
-        if(can_MsgRx.buf[1] == MODE1)
-        {
-            // This appears to be duplicate Mode 1 handling - remove it
-            // The main Mode 1 handler above should handle everything
-            // This section seems to be legacy code
-            can_MsgTx.id = PID_REPLY_ENGINE;  // Use proper ECU ID
-            can_MsgTx.len = 8;
-            can_MsgTx.buf[1] = MODE1_RESPONSE;
-
-            switch(can_MsgRx.buf[2])
-            {   /* Details from http://en.wikipedia.org/wiki/OBD-II_PIDs */
-                case PID_SUPPORTED:
-                    can_MsgTx.buf[0] = 0x06;
-                    can_MsgTx.buf[2] = PID_SUPPORTED;
-                    can_MsgTx.buf[3] = 0xBF;  // Real vehicle: BFBEA893
-                    can_MsgTx.buf[4] = 0xBE;
-                    can_MsgTx.buf[5] = 0xA8;
-                    can_MsgTx.buf[6] = 0x93;
-                    can1.write(can_MsgTx);
-                    break;
-                
-                case MONITOR_STATUS:
-                    can_MsgTx.buf[0] = 0x05;
-                    can_MsgTx.buf[2] = MONITOR_STATUS;
-                    if(ecu.dtc == 1) can_MsgTx.buf[3] = 0x82;
-                        else can_MsgTx.buf[3] = 0x00;
-
-                    can_MsgTx.buf[4] = 0x07;  // Real vehicle: 0007E500
-                    can_MsgTx.buf[5] = 0xE5;
-                    can1.write(can_MsgTx);
-                    break;
-
-                case FUEL_SYSTEM_STATUS:      // 0x03 - Fuel system status
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = FUEL_SYSTEM_STATUS;
-                    can_MsgTx.buf[3] = 0x02;  // Closed loop
-                    can1.write(can_MsgTx);
-                    break;
-
-                case CALCULATED_LOAD:         // 0x04 - Calculated engine load
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = CALCULATED_LOAD;
-                    can_MsgTx.buf[3] = map(ecu.throttle_position, 0, 255, 0, 100); // Based on throttle
-                    can1.write(can_MsgTx);
-                    break;
-
-                case SHORT_FUEL_TRIM_1:       // 0x06
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = SHORT_FUEL_TRIM_1;
-                    can_MsgTx.buf[3] = 0x80;  // 0% trim (128 = 0%)
-                    can1.write(can_MsgTx);
-                    break;
-
-                case LONG_FUEL_TRIM_1:        // 0x07
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = LONG_FUEL_TRIM_1;
-                    can_MsgTx.buf[3] = 0x83;  // +2.3% trim
-                    can1.write(can_MsgTx);
-                    break;
-
-                case SHORT_FUEL_TRIM_2:       // 0x08
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = SHORT_FUEL_TRIM_2;
-                    can_MsgTx.buf[3] = 0x7F;  // -0.8% trim
-                    can1.write(can_MsgTx);
-                    break;
-
-                case LONG_FUEL_TRIM_2:        // 0x09
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = LONG_FUEL_TRIM_2;
-                    can_MsgTx.buf[3] = 0x7A;  // -4.7% trim
-                    can1.write(can_MsgTx);
-                    break;
-
-                case INTAKE_PRESSURE:         // 0x0B - MAP sensor
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = INTAKE_PRESSURE;
-                    can_MsgTx.buf[3] = 33;    // 33 kPa at idle
-                    can1.write(can_MsgTx);
-                    break;
-
-                case ENGINE_RPM:              //   ((A*256)+B)/4    [RPM]
-                    can_MsgTx.buf[0] = 0x04;  
-                    can_MsgTx.buf[2] = ENGINE_RPM; 
-                    can_MsgTx.buf[3] = (ecu.engine_rpm & 0xff00) >> 8;
-                    can_MsgTx.buf[4] = ecu.engine_rpm & 0x00ff;
-                    can1.write(can_MsgTx);
-                    break;
-                               
-                case ENGINE_COOLANT_TEMP:     //     A-40              [degree C]
-                    can_MsgTx.buf[0] = 0x03;  
-                    can_MsgTx.buf[2] = ENGINE_COOLANT_TEMP; 
-                    can_MsgTx.buf[3] = ecu.coolant_temp;
-                    can1.write(can_MsgTx);
-                    break;
-                               
-                case VEHICLE_SPEED:         // A                  [km]
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = VEHICLE_SPEED;
-                    can_MsgTx.buf[3] = ecu.vehicle_speed;
-                    can1.write(can_MsgTx);
-                    break;
-
-                case TIMING_ADVANCE:        // 0x0E - Timing advance
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = TIMING_ADVANCE;
-                    can_MsgTx.buf[3] = 0x8C;  // 14 degrees (140/2-64)
-                    can1.write(can_MsgTx);
-                    break;
-
-                case INTAKE_AIR_TEMP:       // 0x0F - Intake air temperature
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = INTAKE_AIR_TEMP;
-                    can_MsgTx.buf[3] = 0x65;  // 61°C (101-40)
-                    can1.write(can_MsgTx);
-                    break;
-
-                case MAF_SENSOR:               // ((256*A)+B) / 100  [g/s]
-                    can_MsgTx.buf[0] = 0x04;  
-                    can_MsgTx.buf[2] = MAF_SENSOR; 
-                    can_MsgTx.buf[3] = (ecu.maf_airflow & 0xff00) >> 8;
-                    can_MsgTx.buf[4] =  ecu.maf_airflow & 0x00ff;
-                    can1.write(can_MsgTx);
-                    break;
-    
-                case O2_VOLTAGE:            // A * 0.005   (B-128) * 100/128 (if B==0xFF, sensor is not used in trim calc)
-                    can_MsgTx.buf[0] = 0x04;  
-                    can_MsgTx.buf[2] = O2_VOLTAGE; 
-                    can_MsgTx.buf[3] = ecu.o2_voltage & 0x00ff;
-                    can_MsgTx.buf[4] = (ecu.o2_voltage & 0xff00) >> 8;
-                    can1.write(can_MsgTx);
-                    break;;
-                   
-                case THROTTLE:            //
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = THROTTLE;
-                    can_MsgTx.buf[3] = ecu.throttle_position;
-                    can1.write(can_MsgTx);
-                    Serial.print("Throttle: ");
-                    Serial.println(ecu.throttle_position,HEX);
-                    break;
-
-                case O2_SENSORS_PRESENT:    // 0x13 - O2 sensors present
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = O2_SENSORS_PRESENT;
-                    can_MsgTx.buf[3] = 0x33;  // Banks 1 & 2, sensors 1 & 2
-                    can1.write(can_MsgTx);
-                    break;
-
-                case O2_SENSOR_2_B1:        // 0x15 - O2 Sensor 2 Bank 1
-                    can_MsgTx.buf[0] = 0x04;
-                    can_MsgTx.buf[2] = O2_SENSOR_2_B1;
-                    can_MsgTx.buf[3] = 0x3C;  // 0.3V
-                    can_MsgTx.buf[4] = 0xFF;  // Not used
-                    can1.write(can_MsgTx);
-                    break;
-
-                case O2_SENSOR_2_B2:        // 0x19 - O2 Sensor 2 Bank 2
-                    can_MsgTx.buf[0] = 0x04;
-                    can_MsgTx.buf[2] = O2_SENSOR_2_B2;
-                    can_MsgTx.buf[3] = 0x8D;  // 0.705V
-                    can_MsgTx.buf[4] = 0xFF;  // Not used
-                    can1.write(can_MsgTx);
-                    break;
-
-                case OBD_STANDARD:          // 0x1C - OBD Standard
-                    can_MsgTx.buf[0] = 0x03;
-                    can_MsgTx.buf[2] = OBD_STANDARD;
-                    can_MsgTx.buf[3] = 0x03;  // EOBD (Europe)
-                    can1.write(can_MsgTx);
-                    break;
-
-                case ENGINE_RUN_TIME:       // 0x1F - Engine run time since start
-                    can_MsgTx.buf[0] = 0x04;
-                    can_MsgTx.buf[2] = ENGINE_RUN_TIME;
-                    can_MsgTx.buf[3] = 0x19;  // 6459 seconds
-                    can_MsgTx.buf[4] = 0x3B;
-                    can1.write(can_MsgTx);
-                    break;
-              }//switch
-          }
        }
     }
    return 0;
