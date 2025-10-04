@@ -105,6 +105,68 @@ The simulator cycles through realistic driving states that affect emissions:
 - O2 sensor oscillation (0.35-0.45V) indicates proper closed-loop control
 - 100ms update rate matches real ECU scan frequency for emissions monitoring
 
+## Architecture
+
+### Modular Mode System
+
+The codebase uses a plugin-based architecture where each OBD-II mode is implemented in its own file and automatically registered at compile time.
+
+**File Structure:**
+```
+Teensy40_OBDII_simulator/
+├── ecu_sim.cpp              # Core ECU logic (291 lines, down from 1,133)
+├── ecu_sim.h                # Type definitions and declarations
+├── mode_registry.h          # Mode registration system
+├── mode_registry.cpp        # Registry implementation
+├── mode_includes.h          # Auto-includes all modes
+└── modes/                   # Mode implementations
+    ├── mode_01.cpp          # Current Data (44 PIDs, 590 lines)
+    ├── mode_02.cpp          # Freeze Frame (206 lines)
+    ├── mode_03.cpp          # DTCs (88 lines)
+    ├── mode_04.cpp          # Clear DTCs (79 lines)
+    └── mode_09.cpp          # Vehicle Info (348 lines)
+```
+
+### Adding New Modes
+
+To add a new OBD mode (e.g., Mode 06 - Test Results):
+
+1. **Create** `modes/mode_06.cpp`:
+```cpp
+#include "mode_registry.h"
+#include <FlexCAN_T4.h>
+
+extern FlexCAN_T4<CAN1, RX_SIZE_256, TX_SIZE_16> can1;
+extern ecu_t ecu;
+
+bool handle_mode_06(CAN_message_t& can_MsgRx,
+                    CAN_message_t& can_MsgTx,
+                    ecu_simClass* ecu_sim) {
+    if (can_MsgRx.buf[1] != MODE6) return false;
+
+    // Your Mode 06 implementation here
+
+    return true;
+}
+
+static ModeRegistrar mode_06_registrar(MODE6, handle_mode_06, "Test Results");
+```
+
+2. **Add to** `mode_includes.h`:
+```cpp
+#include "modes/mode_06.cpp"
+```
+
+3. **Done!** The mode automatically registers and is available.
+
+### Benefits
+
+- **Separation of Concerns**: Each mode is self-contained
+- **Easy Testing**: Test modes independently
+- **Code Clarity**: Main file reduced by 74% (842 lines)
+- **Extensibility**: Add modes without modifying core code
+- **Automatic Registration**: No manual dispatcher updates needed
+
 ## Hardware Requirements
 
 - **Teensy 4.0** microcontroller
@@ -171,22 +233,52 @@ All simulated values are based on real vehicle data:
 
 ### Evolution from Original
 - **Original Code**: 199 lines (basic 8 PIDs)
-- **Enhanced Code**: 1,085+ lines (44 PIDs + modes)
-- **Growth Factor**: 5.4x
+- **Enhanced Code v2.0**: 1,085+ lines (44 PIDs + modes)
+- **Modular Refactor v3.0**: 1,711 lines across modular files
+- **Growth Factor**: 8.6x from original
+- **Code Reduction**: Main file reduced 74% (842 lines) via modularization
 - **New Features**: 81 additional switch cases
-- **Protocol Support**: Added ISO-TP multi-frame handling
+- **Protocol Support**: ISO-TP multi-frame handling
 
-### File Structure
+### File Structure (Modular Architecture)
 ```
 Teensy40_OBDII_simulator/
-├── Teensy40_OBDII_simulator.ino  # Main sketch
-├── ecu_sim.cpp                    # ECU simulation implementation
-├── ecu_sim.h                      # Headers and definitions
+├── Teensy40_OBDII_simulator.ino  # Main sketch (72 lines)
+├── ecu_sim.cpp                    # Core ECU logic (291 lines)
+├── ecu_sim.h                      # Type definitions (284 lines)
+├── mode_registry.h                # Mode registration system (122 lines)
+├── mode_registry.cpp              # Registry implementation (3 lines)
+├── mode_includes.h                # Auto-include all modes (21 lines)
+├── modes/
+│   ├── mode_01.cpp                # Current Data - 44 PIDs (590 lines)
+│   ├── mode_02.cpp                # Freeze Frame (206 lines)
+│   ├── mode_03.cpp                # DTCs (88 lines)
+│   ├── mode_04.cpp                # Clear DTCs (79 lines)
+│   └── mode_09.cpp                # Vehicle Info (348 lines)
 ├── CHANGELOG.md                   # Detailed change history
 └── README.md                      # This file
 ```
 
+### Metrics by Version
+| Metric | v1.0 (Original) | v2.0 (Enhanced) | v3.0 (Modular) |
+|--------|-----------------|-----------------|----------------|
+| Total Lines | 337 | 1,485 | 1,711 |
+| OBD Modes | 3 | 5 | 5 |
+| Mode 01 PIDs | 8 | 44 | 44 |
+| Files | 3 | 3 | 12 |
+| Largest File | 199 lines | 1,133 lines | 590 lines |
+| Modularity | None | None | Full |
+
 ## Version History
+
+### v3.0.0 (2024) - Modular Architecture Refactor by Wal33D
+- Complete architectural refactoring to modular plugin system
+- Each OBD mode in separate file (modes/mode_XX.cpp)
+- Automatic mode registration system
+- Main file reduced by 74% (842 lines)
+- Easy extensibility - add modes without modifying core
+- Improved code organization and maintainability
+- Added comprehensive architecture documentation
 
 ### v2.0.0 (2024) - Major Enhancement by Wal33D
 - Added 36 new Mode 01 PIDs
