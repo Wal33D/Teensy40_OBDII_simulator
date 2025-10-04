@@ -231,17 +231,49 @@ Pin 20        ->  Green LED (optional)
 
 ## Installation
 
+### Prerequisites
+
 1. Install [Teensyduino](https://www.pjrc.com/teensy/teensyduino.html) for Arduino IDE
 2. Install required library:
    - FlexCAN_T4 (via Library Manager)
-3. Clone this repository:
+3. Install Teensy Loader (choose one):
+   - **[Teensy Loader GUI](https://www.pjrc.com/teensy/loader.html)** - Graphical application
+   - **[Teensy Loader CLI](https://www.pjrc.com/teensy/loader_cli.html)** - Command-line tool
+     ```bash
+     # macOS
+     brew install teensy_loader_cli
+
+     # Linux
+     sudo apt-get install teensy-loader-cli
+
+     # From source
+     git clone https://github.com/PaulStoffregen/teensy_loader_cli
+     cd teensy_loader_cli
+     make
+     ```
+
+### Setup
+
+1. Clone this repository:
    ```bash
    git clone https://github.com/Wal33D/Teensy40_OBDII_simulator.git
+   cd Teensy40_OBDII_simulator
    ```
-4. Open `Teensy40_OBDII_simulator.ino` in Arduino IDE
-5. Select **Tools > Board > Teensy 4.0**
-6. Select **Tools > USB Type > Serial**
-7. Upload to Teensy 4.0
+
+2. **Option A: Arduino IDE**
+   - Open `Teensy40_OBDII_simulator.ino` in Arduino IDE
+   - Select **Tools > Board > Teensy 4.0**
+   - Select **Tools > USB Type > Serial**
+   - Click Upload
+
+3. **Option B: Command Line (Recommended)**
+   ```bash
+   # Compile
+   arduino-cli compile --fqbn teensy:avr:teensy40 .
+
+   # Upload with CLI loader
+   teensy_loader_cli --mcu=TEENSY40 -w -v build/Teensy40_OBDII_simulator.ino.hex
+   ```
 
 ## Usage
 
