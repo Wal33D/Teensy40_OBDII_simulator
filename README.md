@@ -275,6 +275,55 @@ Pin 20        ->  Green LED (optional)
    teensy_loader_cli --mcu=TEENSY40 -w -v build/Teensy40_OBDII_simulator.ino.hex
    ```
 
+## Flashing Firmware with Teensy Loader GUI
+
+If you prefer using the graphical interface, follow this step-by-step guide:
+
+### Step 1: Prepare Your Device
+
+Press the **program button** on your Teensy 4.0 device to put it into bootloader mode. The Teensy Loader application will detect the device and show it as ready to program.
+
+![Press Button on Device](teensy_loader_screenshots/teensy_loader_press_button_on_device.png)
+
+### Step 2: Select the HEX File
+
+Click **"Open HEX File"** in the Teensy Loader and navigate to your compiled firmware. The file will be located at:
+```
+build/Teensy40_OBDII_simulator.ino.hex
+```
+
+![Select Hex File](teensy_loader_screenshots/teensy_loader_select_file.png)
+
+### Step 3: Verify Configuration
+
+Confirm that:
+- The correct **board type** (Teensy 4.0) is selected
+- The **HEX file path** is correct
+- The device shows as **connected** (green indicator)
+
+![Ready to Flash](teensy_loader_screenshots/teensy_loader_ready_to_flash.png)
+
+### Step 4: Automatic Flashing
+
+The Teensy Loader will automatically begin flashing the firmware to your device. You'll see progress indicators showing:
+- **Erase** - Clearing existing firmware
+- **Write** - Programming new firmware
+- **Verify** - Confirming successful flash
+
+![Flashing Success](teensy_loader_screenshots/teensy_loader_success_flashed.png)
+
+### Step 5: Reboot and Run
+
+Once flashing completes, the Teensy will automatically **reboot** and begin running your OBD-II simulator firmware. The status LEDs should start their normal operating patterns.
+
+![Reboot Complete](teensy_loader_screenshots/teensy_loader_success_reboot.png)
+
+**Important Notes:**
+- The entire process takes about 5-10 seconds
+- Do not disconnect the device during flashing
+- If flashing fails, press the program button again and retry
+- The Teensy will remember the last HEX file loaded for quick re-flashing
+
 ## Usage
 
 1. Connect the Teensy to your vehicle's OBD-II port or diagnostic tool
