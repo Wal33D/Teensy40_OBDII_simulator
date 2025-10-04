@@ -277,52 +277,111 @@ Pin 20        ->  Green LED (optional)
 
 ## Flashing Firmware with Teensy Loader GUI
 
-If you prefer using the graphical interface, follow this step-by-step guide:
+---
 
-### Step 1: Prepare Your Device
+### Overview
 
-Press the **program button** on your Teensy 4.0 device to put it into bootloader mode. The Teensy Loader application will detect the device and show it as ready to program.
+**Flashing Method:** Graphical User Interface
+**Estimated Time:** 5-10 seconds
+**Difficulty:** Beginner-friendly
 
-![Press Button on Device](teensy_loader_screenshots/teensy_loader_press_button_on_device.png)
+| Step | Action | Duration |
+|------|--------|----------|
+| 1 | Press program button | Instant |
+| 2 | Select HEX file | ~1 second |
+| 3 | Verify configuration | ~1 second |
+| 4 | Automatic flashing | 3-5 seconds |
+| 5 | Reboot and run | 1-2 seconds |
 
-### Step 2: Select the HEX File
+---
 
-Click **"Open HEX File"** in the Teensy Loader and navigate to your compiled firmware. The file will be located at:
+### Step-by-Step Guide
+
+#### **Step 1: Prepare Your Device**
+
+Press the **program button** on your Teensy 4.0 device to put it into bootloader mode. The Teensy Loader application will automatically detect the device and show it as ready to program.
+
+<div align="center">
+  <img src="teensy_loader_screenshots/teensy_loader_press_button_on_device.png" alt="Press Button on Device" width="225"/>
+  <br/>
+  <em>Teensy Loader detecting device in bootloader mode</em>
+</div>
+
+---
+
+#### **Step 2: Select the HEX File**
+
+Click **"Open HEX File"** in the Teensy Loader and navigate to your compiled firmware:
+
 ```
 build/Teensy40_OBDII_simulator.ino.hex
 ```
 
-![Select Hex File](teensy_loader_screenshots/teensy_loader_select_file.png)
+<div align="center">
+  <img src="teensy_loader_screenshots/teensy_loader_select_file.png" alt="Select Hex File" width="600"/>
+  <br/>
+  <em>File selection dialog - navigate to your build directory</em>
+</div>
 
-### Step 3: Verify Configuration
+---
 
-Confirm that:
-- The correct **board type** (Teensy 4.0) is selected
-- The **HEX file path** is correct
-- The device shows as **connected** (green indicator)
+#### **Step 3: Verify Configuration**
 
-![Ready to Flash](teensy_loader_screenshots/teensy_loader_ready_to_flash.png)
+Before flashing, confirm the following settings:
 
-### Step 4: Automatic Flashing
+- ✅ Correct **board type** (Teensy 4.0) is selected
+- ✅ **HEX file path** displays correctly
+- ✅ Device shows as **connected** (green indicator)
 
-The Teensy Loader will automatically begin flashing the firmware to your device. You'll see progress indicators showing:
-- **Erase** - Clearing existing firmware
-- **Write** - Programming new firmware
-- **Verify** - Confirming successful flash
+<div align="center">
+  <img src="teensy_loader_screenshots/teensy_loader_ready_to_flash.png" alt="Ready to Flash" width="225"/>
+  <br/>
+  <em>Configuration verified and ready to flash</em>
+</div>
 
-![Flashing Success](teensy_loader_screenshots/teensy_loader_success_flashed.png)
+---
 
-### Step 5: Reboot and Run
+#### **Step 4: Automatic Flashing**
 
-Once flashing completes, the Teensy will automatically **reboot** and begin running your OBD-II simulator firmware. The status LEDs should start their normal operating patterns.
+The Teensy Loader will automatically begin the flashing sequence:
 
-![Reboot Complete](teensy_loader_screenshots/teensy_loader_success_reboot.png)
+| Phase | Description | Status |
+|-------|-------------|--------|
+| **Erase** | Clearing existing firmware | In progress... |
+| **Write** | Programming new firmware | In progress... |
+| **Verify** | Confirming successful flash | Completed ✓ |
 
-**Important Notes:**
-- The entire process takes about 5-10 seconds
-- Do not disconnect the device during flashing
-- If flashing fails, press the program button again and retry
-- The Teensy will remember the last HEX file loaded for quick re-flashing
+<div align="center">
+  <img src="teensy_loader_screenshots/teensy_loader_success_flashed.png" alt="Flashing Success" width="225"/>
+  <br/>
+  <em>Firmware successfully flashed and verified</em>
+</div>
+
+---
+
+#### **Step 5: Reboot and Run**
+
+Once flashing completes, the Teensy will automatically **reboot** and begin running your OBD-II simulator firmware. The status LEDs should activate with their normal operating patterns.
+
+<div align="center">
+  <img src="teensy_loader_screenshots/teensy_loader_success_reboot.png" alt="Reboot Complete" width="225"/>
+  <br/>
+  <em>Device rebooted successfully - simulator is now running</em>
+</div>
+
+---
+
+### Important Notes
+
+| ⚠️ | **Safety Precautions** |
+|---|------------------------|
+| ⏱️ | The entire process takes approximately **5-10 seconds** |
+| 🔌 | **Do not disconnect** the device during flashing |
+| 🔄 | If flashing fails, press the program button again and retry |
+| 💾 | The Teensy will remember the last HEX file loaded for quick re-flashing |
+| 📍 | Ensure you're in the correct project directory when selecting the HEX file |
+
+---
 
 ## Usage
 
