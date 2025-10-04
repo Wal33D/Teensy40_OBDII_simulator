@@ -167,6 +167,47 @@ static ModeRegistrar mode_06_registrar(MODE6, handle_mode_06, "Test Results");
 - **Extensibility**: Add modes without modifying core code
 - **Automatic Registration**: No manual dispatcher updates needed
 
+## Documentation
+
+Comprehensive technical documentation is available in the `docs/` directory:
+
+### Mode Documentation
+
+Each OBD-II mode has detailed documentation with protocol specifications, formulas, and usage examples:
+
+- **[MODE_01.md](docs/MODE_01.md)** - Current Powertrain Data (45 PIDs)
+  - Complete SAE J1979 formula reference
+  - All 45 PIDs with data ranges and examples
+  - Dynamic driving simulation states
+  - Multi-ECU response behavior
+
+- **[MODE_02.md](docs/MODE_02.md)** - Freeze Frame Data
+  - Fault condition capture mechanism
+  - 2 independent freeze frame storage
+  - DTC association (P0100, P0200)
+  - Data persistence until Mode 04 clear
+
+- **[MODE_03.md](docs/MODE_03.md)** - Request Emissions DTCs
+  - Emissions diagnostic trouble codes
+  - DTC format and encoding
+  - MIL (Check Engine Light) relationship
+
+- **[MODE_04.md](docs/MODE_04.md)** - Clear Diagnostic Information
+  - Comprehensive emissions data reset
+  - What gets cleared and implications
+  - Post-repair verification workflow
+
+- **[MODE_09.md](docs/MODE_09.md)** - Vehicle Information
+  - VIN, Calibration ID, CVN retrieval
+  - ISO-TP multi-frame protocol
+  - Real Mercedes-Benz data integration
+  - Compliance verification
+
+### Technical Reports
+
+- **[MODE_01_AUDIT.md](MODE_01_AUDIT.md)** - Initial protocol audit findings
+- **[MODE_01_FIXES_SUMMARY.md](MODE_01_FIXES_SUMMARY.md)** - Complete fix documentation
+
 ## Hardware Requirements
 
 - **Teensy 4.0** microcontroller
@@ -260,16 +301,33 @@ Teensy40_OBDII_simulator/
 ```
 
 ### Metrics by Version
-| Metric | v1.0 (Original) | v2.0 (Enhanced) | v3.0 (Modular) |
-|--------|-----------------|-----------------|----------------|
-| Total Lines | 337 | 1,485 | 1,711 |
-| OBD Modes | 3 | 5 | 5 |
-| Mode 01 PIDs | 8 | 44 | 44 |
-| Files | 3 | 3 | 12 |
-| Largest File | 199 lines | 1,133 lines | 590 lines |
-| Modularity | None | None | Full |
+| Metric | v1.0 (Original) | v2.0 (Enhanced) | v3.0 (Modular) | v3.1 (Protocol) |
+|--------|-----------------|-----------------|----------------|-----------------|
+| Total Lines | 337 | 1,485 | 1,711 | 1,719 |
+| OBD Modes | 3 | 5 | 5 | 5 |
+| Mode 01 PIDs | 8 | 44 | 44 | 45 |
+| Files | 3 | 3 | 12 | 17 |
+| Largest File | 199 lines | 1,133 lines | 590 lines | 598 lines |
+| Modularity | None | None | Full | Full |
+| Protocol Compliance | Partial | Partial | Partial | **100%** |
 
 ## Version History
+
+### v3.1.0 (2024) - Protocol Compliance & Documentation by Wal33D
+- **Critical Protocol Fixes**: 23 bugs corrected for 100% SAE J1979 compliance
+  - Fixed 20 missing CAN IDs (PIDs 0x31-0x58)
+  - Corrected O2 voltage range (0.35V-0.55V per spec)
+  - Fixed fuel rail pressure formula (400 kPa realistic value)
+  - Added missing PID 0x14 (O2 Voltage) handler
+  - Updated supported PID bitmasks for accuracy
+- **Comprehensive Documentation**: 5 detailed mode guides in docs/
+  - MODE_01.md: All 45 PIDs with SAE J1979 formulas
+  - MODE_02.md: Freeze frame data capture and storage
+  - MODE_03.md: Emissions DTC retrieval
+  - MODE_04.md: Diagnostic data clearing
+  - MODE_09.md: Vehicle information and ISO-TP protocol
+- **Build Verified**: Successful compilation and flash to Teensy 4.0
+- **Real-World Testing**: Confirmed working with Bluetooth OBD dongles
 
 ### v3.0.0 (2024) - Modular Architecture Refactor by Wal33D
 - Complete architectural refactoring to modular plugin system

@@ -116,7 +116,9 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
         }
 
         // O2 sensor oscillation (rich/lean cycling around stoichiometric)
-        o2_voltage = 0x70 + random(0, 0x20);  // 0.35-0.45V typical oscillation
+        // Formula: Voltage = A × 0.005V per SAE J1979
+        // Target: 0.35V-0.55V (70-110 decimal) for proper closed-loop operation
+        o2_voltage = 0x46 + random(0, 0x28);  // 0x46=70, range 40 = 70-110 = 0.35V-0.55V
 
         lastUpdate = millis();
     }
@@ -128,10 +130,12 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
                 can_MsgTx.id = PID_REPLY_ENGINE;
                 can_MsgTx.buf[0] = 0x06;
                 can_MsgTx.buf[2] = PID_SUPPORTED;
-                can_MsgTx.buf[3] = 0xBF;  // Engine supports many PIDs
-                can_MsgTx.buf[4] = 0xBE;
-                can_MsgTx.buf[5] = 0xA8;
-                can_MsgTx.buf[6] = 0x93;
+                // Bitmask showing supported PIDs 01-20
+                // 0xBF = 01,03-09 | 0xBE = 0B-10 | 0xB8 = 11,13-15 | 0x93 = 19,1C,1F + PID 20 supported
+                can_MsgTx.buf[3] = 0xBF;  // PIDs 01,03,04,05,06,07,08,09
+                can_MsgTx.buf[4] = 0xBE;  // PIDs 0B,0C,0D,0E,0F,10
+                can_MsgTx.buf[5] = 0xB8;  // PIDs 11,13,14,15 (added PID 14 support)
+                can_MsgTx.buf[6] = 0x93;  // PIDs 19,1C,1F, PID 20
                 can1.write(can_MsgTx);
             }
             if(sendTransResponse) {
@@ -334,6 +338,15 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             can1.write(can_MsgTx);
             break;
 
+        case O2_VOLTAGE:  // 0x14 - Oxygen Sensor 1 Bank 1 (simple voltage)
+            can_MsgTx.id = PID_REPLY_ENGINE;
+            can_MsgTx.buf[0] = 0x04;
+            can_MsgTx.buf[2] = O2_VOLTAGE;
+            can_MsgTx.buf[3] = o2_voltage;  // Dynamic O2 voltage (0.35-0.55V)
+            can_MsgTx.buf[4] = 0xFF;        // STFT not used in this PID format
+            can1.write(can_MsgTx);
+            break;
+
         case O2_SENSOR_2_B1:  // 0x15
             can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
@@ -382,8 +395,10 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = FUEL_RAIL_PRESSURE;
-            can_MsgTx.buf[3] = 0x05;  // From Mercedes: 117.4 kPa
-            can_MsgTx.buf[4] = 0xCE;
+            // Formula: ((A×256) + B) × 10 kPa per SAE J1979
+            // Target: ~400 kPa (typical gasoline direct injection)
+            can_MsgTx.buf[3] = 0x00;  // 40 decimal = 400 kPa (realistic for GDI)
+            can_MsgTx.buf[4] = 0x28;  // 0x0028 = 40 × 10 = 400 kPa
             can1.write(can_MsgTx);
             break;
 
@@ -412,6 +427,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case DISTANCE_SINCE_CLR:  // 0x31
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = DISTANCE_SINCE_CLR;
             can_MsgTx.buf[3] = 0xFF;  // From Mercedes: 65535 km
@@ -420,6 +436,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case EVAP_VAPOR_PRESS:  // 0x32
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = EVAP_VAPOR_PRESS;
             can_MsgTx.buf[3] = 0xFD;  // From Mercedes
@@ -428,6 +445,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case BAROMETRIC_PRESS:  // 0x33
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = BAROMETRIC_PRESS;
             can_MsgTx.buf[3] = 0x62;  // From Mercedes: 98 kPa
@@ -435,6 +453,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case O2_SENSOR_1_B1:  // 0x34
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x06;
             can_MsgTx.buf[2] = O2_SENSOR_1_B1;
             can_MsgTx.buf[3] = 0x80;  // From Mercedes
@@ -445,6 +464,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case O2_SENSOR_5_B2:  // 0x38
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x06;
             can_MsgTx.buf[2] = O2_SENSOR_5_B2;
             can_MsgTx.buf[3] = 0x80;  // From Mercedes
@@ -455,6 +475,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case CAT_TEMP_B1S1:  // 0x3C
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = CAT_TEMP_B1S1;
             can_MsgTx.buf[3] = 0x11;  // From Mercedes
@@ -463,6 +484,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case CAT_TEMP_B2S1:  // 0x3D
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = CAT_TEMP_B2S1;
             can_MsgTx.buf[3] = 0x11;  // From Mercedes
@@ -471,6 +493,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case MONITOR_STATUS_CYC:  // 0x41
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x06;
             can_MsgTx.buf[2] = MONITOR_STATUS_CYC;
             can_MsgTx.buf[3] = 0x00;  // From Mercedes
@@ -481,6 +504,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case CONTROL_MOD_VOLT:  // 0x42
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = CONTROL_MOD_VOLT;
             can_MsgTx.buf[3] = 0x33;  // From Mercedes: 13.31V
@@ -489,6 +513,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case ABSOLUTE_LOAD:  // 0x43
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = ABSOLUTE_LOAD;
             can_MsgTx.buf[3] = 0x00;  // From Mercedes: 17.6%
@@ -497,6 +522,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case COMMANDED_EQUIV:  // 0x44
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x04;
             can_MsgTx.buf[2] = COMMANDED_EQUIV;
             can_MsgTx.buf[3] = 0x7F;  // From Mercedes
@@ -505,6 +531,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case REL_THROTTLE_POS:  // 0x45
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = REL_THROTTLE_POS;
             can_MsgTx.buf[3] = currentThrottle >> 2;  // Relative throttle (1/4 of absolute)
@@ -512,6 +539,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case AMBIENT_AIR_TEMP:  // 0x46
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = AMBIENT_AIR_TEMP;
             can_MsgTx.buf[3] = 0x4E;  // From Mercedes: 38°C
@@ -519,6 +547,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case THROTTLE_POS_B:  // 0x47
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = THROTTLE_POS_B;
             can_MsgTx.buf[3] = currentThrottle;  // Same as throttle A
@@ -526,6 +555,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case ACCEL_POS_D:  // 0x49
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = ACCEL_POS_D;
             can_MsgTx.buf[3] = 0x11;  // From Mercedes
@@ -533,6 +563,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case ACCEL_POS_E:  // 0x4A
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = ACCEL_POS_E;
             can_MsgTx.buf[3] = 0x11;  // From Mercedes
@@ -540,6 +571,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case COMMANDED_THROTTLE:  // 0x4C
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = COMMANDED_THROTTLE;
             can_MsgTx.buf[3] = currentThrottle >> 1;  // Half of actual throttle
@@ -547,6 +579,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case FUEL_TYPE:  // 0x51
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = FUEL_TYPE;
             can_MsgTx.buf[3] = 0x01;  // From Mercedes
@@ -554,6 +587,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case SHORT_O2_TRIM_B1:  // 0x56
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = SHORT_O2_TRIM_B1;
             can_MsgTx.buf[3] = 0x7E;  // From Mercedes
@@ -561,6 +595,7 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             break;
 
         case SHORT_O2_TRIM_B2:  // 0x58
+            can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x03;
             can_MsgTx.buf[2] = SHORT_O2_TRIM_B2;
             can_MsgTx.buf[3] = 0x7F;  // From Mercedes
