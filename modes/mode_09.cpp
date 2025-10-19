@@ -340,7 +340,14 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
              * This was central to detecting the VW "Dieselgate" scandal.
              *
              * FORMAT: 4 bytes (fits in single frame)
+             *
+             * MULTI-ECU RESPONSE: All 3 ECUs respond with their unique CVNs
+             * - ECM: EB854939
+             * - TCM: 5DEF71AD
+             * - FPCM: 8CD7FF6C
              */
+
+            // ECM - Engine Control Module CVN
             can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
             can_MsgTx.buf[2] = CVN_REQUEST;
@@ -349,6 +356,32 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             can_MsgTx.buf[5] = 0x85;
             can_MsgTx.buf[6] = 0x49;
             can_MsgTx.buf[7] = 0x39;
+            can1.write(can_MsgTx);
+
+            delay(5);  // Realistic delay between ECU responses
+
+            // TCM - Transmission Control Module CVN
+            can_MsgTx.id = PID_REPLY_TRANS;
+            can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
+            can_MsgTx.buf[2] = CVN_REQUEST;
+            can_MsgTx.buf[3] = 0x01;  // 1 CVN
+            can_MsgTx.buf[4] = 0x5D;
+            can_MsgTx.buf[5] = 0xEF;
+            can_MsgTx.buf[6] = 0x71;
+            can_MsgTx.buf[7] = 0xAD;
+            can1.write(can_MsgTx);
+
+            delay(5);  // Realistic delay between ECU responses
+
+            // FPCM - Fuel Pump Control Module CVN
+            can_MsgTx.id = PID_REPLY_CHASSIS;
+            can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
+            can_MsgTx.buf[2] = CVN_REQUEST;
+            can_MsgTx.buf[3] = 0x01;  // 1 CVN
+            can_MsgTx.buf[4] = 0x8C;
+            can_MsgTx.buf[5] = 0xD7;
+            can_MsgTx.buf[6] = 0xFF;
+            can_MsgTx.buf[7] = 0x6C;
             can1.write(can_MsgTx);
             break;
 
