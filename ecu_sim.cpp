@@ -122,16 +122,21 @@ uint8_t ecu_simClass::update(void)
      Serial.print(can_MsgRx.buf[6]);Serial.print(" ");
      Serial.print(can_MsgRx.buf[7]);Serial.println(" ");
      
-     // Handle ISO-TP Flow Control frames
-     if (can_MsgRx.id >= 0x7E0 && can_MsgRx.id <= 0x7E7 &&
+     // Handle ISO-TP Flow Control frames from tester
+     // Tester sends flow control on 0x7E0 (ECM), 0x7E1 (TCM), 0x7E3 (FPCM)
+     if ((can_MsgRx.id >= 0x7E0 && can_MsgRx.id <= 0x7E7) &&
          (can_MsgRx.buf[0] & 0xF0) == ISO_TP_FLOW_CONTROL) {
          // Flow control received - pass to ISO-TP handler
          isotp_handle_flow_control(can_MsgRx.buf);
          return 0;  // Flow control processed
      }
 
-     // Handle both broadcast (0x7DF) and ECU-specific (0x7E0) requests
-     if (can_MsgRx.id == PID_REQUEST || can_MsgRx.id == PID_REQUEST_ENGINE)
+     // Handle broadcast (0x7DF) and all ECU-specific requests
+     // Supports 3 ECUs: ECM (0x7E0), TCM (0x7E1), FPCM (0x7E3)
+     if (can_MsgRx.id == PID_REQUEST ||
+         can_MsgRx.id == PID_REQUEST_ENGINE ||
+         can_MsgRx.id == PID_REQUEST_TRANS ||
+         can_MsgRx.id == 0x7E3)  // FPCM request
      {
        digitalWrite(LED_green, HIGH);
        flash_led_tick = 0;
@@ -139,8 +144,16 @@ uint8_t ecu_simClass::update(void)
        // Check if this is an ISO-TP First Frame from tester (for receiving multi-frame requests)
        if ((can_MsgRx.buf[0] & 0xF0) == ISO_TP_FIRST_FRAME) {
            // Multi-frame request from tester - send flow control
+           // Determine which ECU should respond based on request ID
+           uint16_t response_id = PID_REPLY_ENGINE;  // Default to ECM
+           if (can_MsgRx.id == PID_REQUEST_TRANS) {
+               response_id = PID_REPLY_TRANS;  // TCM
+           } else if (can_MsgRx.id == 0x7E3) {
+               response_id = PID_REPLY_CHASSIS;  // FPCM
+           }
+
            CAN_message_t flowControl;
-           flowControl.id = PID_REPLY_ENGINE;
+           flowControl.id = response_id;
            flowControl.len = 8;
            flowControl.buf[0] = ISO_TP_FLOW_CONTROL | FC_CONTINUE;  // 0x30 - Continue to send
            flowControl.buf[1] = ISO_TP_BS;        // Block size (0 = send all)
@@ -170,6 +183,8 @@ uint8_t ecu_simClass::update(void)
      
 freeze_frame_t freeze_frame[2];  // Global freeze frame storage
 isotp_transfer_t isotp_tx;        // Global ISO-TP transmit context
+pending_transfer_t pending_transfers[MAX_PENDING_TRANSFERS];  // Queue for multi-ECU responses
+uint8_t pending_transfer_count = 0;
 ecu_simClass ecu_sim;
 
 // ISO-TP Implementation Functions
@@ -278,6 +293,25 @@ void ecu_simClass::isotp_send_consecutive_frame(void) {
     }
 }
 
+// Queue a transfer to be sent later (for multi-ECU responses)
+bool ecu_simClass::isotp_queue_transfer(uint8_t* data, uint16_t len, uint16_t can_id, uint8_t mode, uint8_t pid) {
+    // Find an empty slot in the queue
+    for(int i = 0; i < MAX_PENDING_TRANSFERS; i++) {
+        if(!pending_transfers[i].pending) {
+            // Copy data to queue
+            memcpy(pending_transfers[i].data, data, len);
+            pending_transfers[i].len = len;
+            pending_transfers[i].can_id = can_id;
+            pending_transfers[i].mode = mode;
+            pending_transfers[i].pid = pid;
+            pending_transfers[i].pending = true;
+            pending_transfer_count++;
+            return true;
+        }
+    }
+    return false;  // Queue full
+}
+
 void ecu_simClass::isotp_process_transfers(void) {
     // Timeout check for flow control
     if((isotp_tx.state == ISOTP_WAIT_FC || isotp_tx.state == ISOTP_WAIT_NEXT_FC) &&
@@ -288,5 +322,26 @@ void ecu_simClass::isotp_process_transfers(void) {
     // Continue sending consecutive frames if in progress
     if(isotp_tx.state == ISOTP_SENDING_CF) {
         isotp_send_consecutive_frame();
+    }
+
+    // Check if current transfer is complete and we have pending transfers
+    if(isotp_tx.state == ISOTP_IDLE && pending_transfer_count > 0) {
+        // Start next pending transfer
+        for(int i = 0; i < MAX_PENDING_TRANSFERS; i++) {
+            if(pending_transfers[i].pending) {
+                // Found a pending transfer - start it
+                isotp_init_transfer(pending_transfers[i].data,
+                                  pending_transfers[i].len,
+                                  pending_transfers[i].can_id,
+                                  pending_transfers[i].mode,
+                                  pending_transfers[i].pid);
+                isotp_send_first_frame();
+
+                // Mark this transfer as started
+                pending_transfers[i].pending = false;
+                pending_transfer_count--;
+                break;  // Only start one at a time
+            }
+        }
     }
 }

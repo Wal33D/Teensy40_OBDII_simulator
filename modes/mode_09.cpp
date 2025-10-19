@@ -1,6 +1,32 @@
 /*
  * OBD-II Mode 09 - Request Vehicle Information
  *
+ * MULTI-ECU SIMULATION: Mercedes-Benz GLE-Class Configuration
+ * ============================================================
+ * This implementation simulates 3 ECUs as found in a 2018 Mercedes-Benz GLE-Class:
+ *
+ * 1. ECM - Engine Control Module (0x7E8)
+ *    - Calibration ID: 2769011200190170
+ *    - Name: ECM-EngineControl
+ *    - Function: Primary emissions control (fuel, ignition, catalytic converter)
+ *    - VIN: 4JGDA5HB7JB158144
+ *
+ * 2. TCM - Transmission Control Module (0x7E9)
+ *    - Calibration ID: 00090237271900001
+ *    - Name: TCM-TransmisCtrl
+ *    - Function: Transmission shift patterns affecting emissions
+ *    - VIN: 4JGDA5HB7JB158144 (same as vehicle)
+ *
+ * 3. FPCM - Fuel Pump Control Module (0x7EB)
+ *    - Calibration ID: 00090121001900560
+ *    - Name: FPCM-FuelPumpCtrl
+ *    - Function: Fuel delivery control for emissions optimization
+ *    - VIN: 4JGDA5HB7JB158144 (same as vehicle)
+ *
+ * CAN ID MAPPING:
+ * - Request IDs:  0x7DF (broadcast), 0x7E0 (ECM), 0x7E1 (TCM), 0x7E3 (FPCM)
+ * - Response IDs: 0x7E8 (ECM), 0x7E9 (TCM), 0x7EB (FPCM)
+ *
  * EMISSIONS COMPLIANCE CONTEXT:
  * ============================
  * Mode 09 is a critical component of the OBD-II emissions monitoring program.
@@ -98,9 +124,14 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
              * Multiple ECUs respond to show which emissions modules are present.
              * This allows scan tools to identify all emissions control modules
              * and query each one for their specific vehicle information.
+             *
+             * Simulating Mercedes-Benz GLE-Class with 3 ECUs:
+             * - ECM-EngineControl (0x7E8)
+             * - TCM-TransmisCtrl (0x7E9)
+             * - FPCM-FuelPumpCtrl (0x7EB)
              */
 
-            // Engine ECU response (0x7E8)
+            // ECM - Engine Control Module response (0x7E8)
             can_MsgTx.id = PID_REPLY_ENGINE;
             can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
             can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
@@ -114,11 +145,24 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             // Small delay between ECU responses (realistic timing)
             delay(5);
 
-            // Transmission ECU response (0x7E9) - different supported PIDs
+            // TCM - Transmission Control Module response (0x7E9)
             can_MsgTx.id = PID_REPLY_TRANS;
             can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
             can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
-            can_MsgTx.buf[3] = 0x14;  // Supports: 0x02, 0x04 (different from engine)
+            can_MsgTx.buf[3] = 0x54;  // Supports: 0x02, 0x04, 0x0A
+            can_MsgTx.buf[4] = 0x40;
+            can_MsgTx.buf[5] = 0x00;
+            can_MsgTx.buf[6] = 0x00;
+            can_MsgTx.buf[7] = 0x00;  // Padding
+            can1.write(can_MsgTx);
+
+            delay(5);
+
+            // FPCM - Fuel Pump Control Module response (0x7EB)
+            can_MsgTx.id = PID_REPLY_CHASSIS;
+            can_MsgTx.buf[0] = 0x06;  // Single frame, 6 bytes
+            can_MsgTx.buf[2] = VEH_INFO_SUPPORTED;
+            can_MsgTx.buf[3] = 0x54;  // Supports: 0x02, 0x04, 0x0A
             can_MsgTx.buf[4] = 0x40;
             can_MsgTx.buf[5] = 0x00;
             can_MsgTx.buf[6] = 0x00;
@@ -136,24 +180,55 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
              *
              * FORMAT: 17 characters (requires multi-frame ISO-TP)
              * Total message: 3 header bytes + 17 VIN bytes = 20 bytes
+             *
+             * MULTI-ECU RESPONSE: All ECUs respond with the same VIN
              */
             {
-                // Only start transfer if not already in progress
+                // Check which ECU should respond based on request ID
+                uint16_t response_id = PID_REPLY_ENGINE;  // Default
+
+                // Determine target ECU from request
+                if (can_MsgRx.id == PID_REQUEST_TRANS) {
+                    response_id = PID_REPLY_TRANS;
+                } else if (can_MsgRx.id == 0x7E3) {  // Request to FPCM
+                    response_id = PID_REPLY_CHASSIS;
+                } else if (can_MsgRx.id == PID_REQUEST) {
+                    // Broadcast request - all ECUs respond
+                    // We'll handle this by sending multiple responses
+
+                    // VIN: 4JGDA5HB7JB158144 (17 chars)
+                    uint8_t vin_data[20];  // 3 header + 17 VIN
+                    vin_data[0] = MODE9_RESPONSE;
+                    vin_data[1] = VIN_REQUEST;
+                    vin_data[2] = 0x01;  // 1 data item
+                    const char* vin = "4JGDA5HB7JB158144";
+                    for(int i = 0; i < 17; i++) {
+                        vin_data[i+3] = vin[i];
+                    }
+
+                    // Only send first ECU if no transfer in progress
+                    if(isotp_tx.state == ISOTP_IDLE) {
+                        // ECM response
+                        ecu_sim->isotp_init_transfer(vin_data, 20, PID_REPLY_ENGINE, MODE9, VIN_REQUEST);
+                        ecu_sim->isotp_send_first_frame();
+                    }
+                    break;  // Additional ECUs will respond when transfer completes
+                }
+
+                // Single ECU targeted request
                 if(isotp_tx.state != ISOTP_IDLE) break;
 
-                // VIN: 4JGDA5HB7JB158144 (17 chars)
                 uint8_t vin_data[20];  // 3 header + 17 VIN
                 vin_data[0] = MODE9_RESPONSE;
                 vin_data[1] = VIN_REQUEST;
                 vin_data[2] = 0x01;  // 1 data item
-                // VIN characters
                 const char* vin = "4JGDA5HB7JB158144";
                 for(int i = 0; i < 17; i++) {
                     vin_data[i+3] = vin[i];
                 }
 
                 // Initialize ISO-TP transfer for multi-frame response
-                ecu_sim->isotp_init_transfer(vin_data, 20, PID_REPLY_ENGINE, MODE9, VIN_REQUEST);
+                ecu_sim->isotp_init_transfer(vin_data, 20, response_id, MODE9, VIN_REQUEST);
                 ecu_sim->isotp_send_first_frame();
             }
             break;
@@ -168,26 +243,85 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
              * - Ensuring recalls/updates are properly applied
              * - EPA enforcement of emissions standards
              *
-             * FORMAT: 16 characters (requires multi-frame ISO-TP)
-             * Total message: 3 header bytes + 16 cal ID bytes = 19 bytes
+             * FORMAT: 16-17 characters (requires multi-frame ISO-TP)
+             * Total message: 3 header bytes + cal ID bytes
+             *
+             * MULTI-ECU RESPONSE: Each ECU has unique calibration ID
+             * - ECM-EngineControl: 2769011200190170 (16 chars)
+             * - TCM-TransmisCtrl: 00090237271900001 (17 chars)
+             * - FPCM-FuelPumpCtrl: 00090121001900560 (17 chars)
              */
             {
-                // Only start transfer if not already in progress
+                // Check which ECU should respond based on request ID
+                uint16_t response_id = PID_REPLY_ENGINE;  // Default
+                const char* cal_id = "2769011200190170";  // ECM default
+                uint8_t cal_len = 16;
+
+                // Determine target ECU from request
+                if (can_MsgRx.id == PID_REQUEST_TRANS) {
+                    response_id = PID_REPLY_TRANS;
+                    cal_id = "00090237271900001";  // TCM calibration ID
+                    cal_len = 17;
+                } else if (can_MsgRx.id == 0x7E3) {  // Request to FPCM
+                    response_id = PID_REPLY_CHASSIS;
+                    cal_id = "00090121001900560";  // FPCM calibration ID
+                    cal_len = 17;
+                } else if (can_MsgRx.id == PID_REQUEST) {
+                    // Broadcast request - ALL 3 ECUs respond with their calibration IDs
+                    // Start ECM immediately, queue TCM and FPCM
+
+                    if(isotp_tx.state != ISOTP_IDLE) break;  // Transfer in progress
+
+                    // ECM calibration ID
+                    uint8_t ecm_cal_data[19];
+                    ecm_cal_data[0] = MODE9_RESPONSE;
+                    ecm_cal_data[1] = CAL_ID_REQUEST;
+                    ecm_cal_data[2] = 0x01;
+                    const char* ecm_cal = "2769011200190170";
+                    for(int i = 0; i < 16; i++) ecm_cal_data[i+3] = ecm_cal[i];
+
+                    // TCM calibration ID
+                    uint8_t tcm_cal_data[20];
+                    tcm_cal_data[0] = MODE9_RESPONSE;
+                    tcm_cal_data[1] = CAL_ID_REQUEST;
+                    tcm_cal_data[2] = 0x01;
+                    const char* tcm_cal = "00090237271900001";
+                    for(int i = 0; i < 17; i++) tcm_cal_data[i+3] = tcm_cal[i];
+
+                    // FPCM calibration ID
+                    uint8_t fpcm_cal_data[20];
+                    fpcm_cal_data[0] = MODE9_RESPONSE;
+                    fpcm_cal_data[1] = CAL_ID_REQUEST;
+                    fpcm_cal_data[2] = 0x01;
+                    const char* fpcm_cal = "00090121001900560";
+                    for(int i = 0; i < 17; i++) fpcm_cal_data[i+3] = fpcm_cal[i];
+
+                    // Start ECM transfer immediately
+                    ecu_sim->isotp_init_transfer(ecm_cal_data, 19, PID_REPLY_ENGINE, MODE9, CAL_ID_REQUEST);
+                    ecu_sim->isotp_send_first_frame();
+
+                    // Queue TCM and FPCM transfers
+                    ecu_sim->isotp_queue_transfer(tcm_cal_data, 20, PID_REPLY_TRANS, MODE9, CAL_ID_REQUEST);
+                    ecu_sim->isotp_queue_transfer(fpcm_cal_data, 20, PID_REPLY_CHASSIS, MODE9, CAL_ID_REQUEST);
+
+                    break;
+                }
+
+                // Single ECU targeted request
                 if(isotp_tx.state != ISOTP_IDLE) break;
 
-                // Cal ID: 2769011200190170 (16 chars)
-                uint8_t cal_data[19];  // 3 header + 16 cal ID
+                uint8_t cal_data[20];  // 3 header + max 17 cal ID
                 cal_data[0] = MODE9_RESPONSE;
                 cal_data[1] = CAL_ID_REQUEST;
                 cal_data[2] = 0x01;  // 1 data item
-                // Calibration ID
-                const char* cal_id = "2769011200190170";
-                for(int i = 0; i < 16; i++) {
+
+                // Copy calibration ID
+                for(int i = 0; i < cal_len; i++) {
                     cal_data[i+3] = cal_id[i];
                 }
 
                 // Initialize ISO-TP transfer for multi-frame response
-                ecu_sim->isotp_init_transfer(cal_data, 19, PID_REPLY_ENGINE, MODE9, CAL_ID_REQUEST);
+                ecu_sim->isotp_init_transfer(cal_data, 3 + cal_len, response_id, MODE9, CAL_ID_REQUEST);
                 ecu_sim->isotp_send_first_frame();
             }
             break;
@@ -224,40 +358,116 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
              * Identifies which ECU/module controls what emissions function.
              * Required because modern vehicles have multiple modules involved
              * in emissions control:
-             * - Engine ECU: Primary emissions control (fuel, ignition, etc.)
-             * - Transmission ECU: Shift patterns affect emissions
-             * - Hybrid ECU: Manages electric/gas transitions
+             * - ECM: Engine Control Module - Primary emissions control
+             * - TCM: Transmission Control Module - Shift patterns affect emissions
+             * - FPCM: Fuel Pump Control Module - Fuel delivery for emissions
              *
              * This helps technicians and inspectors understand which module
              * is responsible for specific emissions monitoring functions.
              *
              * FORMAT: Variable length string (requires multi-frame ISO-TP)
-             * Total message: 23 bytes for "ECM-EngineControl"
+             * MULTI-ECU RESPONSE: Each ECU returns its unique name
+             * - ECM-EngineControl (23 bytes)
+             * - TCM-TransmisCtrl (22 bytes)
+             * - FPCM-FuelPumpCtrl (23 bytes)
              */
             {
-                // Only start transfer if not already in progress
+                // Check which ECU should respond based on request ID
+                uint16_t response_id = PID_REPLY_ENGINE;  // Default
+                const char* ecu_prefix = "ECM";
+                const char* ecu_name = "EngineControl";
+                uint8_t total_len = 23;
+
+                // Determine target ECU from request
+                if (can_MsgRx.id == PID_REQUEST_TRANS) {
+                    response_id = PID_REPLY_TRANS;
+                    ecu_prefix = "TCM";
+                    ecu_name = "TransmisCtrl";
+                    total_len = 22;  // Slightly different length
+                } else if (can_MsgRx.id == 0x7E3) {  // Request to FPCM
+                    response_id = PID_REPLY_CHASSIS;
+                    ecu_prefix = "FPCM";
+                    ecu_name = "FuelPumpCtrl";
+                    total_len = 23;
+                } else if (can_MsgRx.id == PID_REQUEST) {
+                    // Broadcast request - ALL 3 ECUs respond with their names
+                    // Start ECM immediately, queue TCM and FPCM
+
+                    if(isotp_tx.state != ISOTP_IDLE) break;  // Transfer in progress
+
+                    // ECM Name: ECM-EngineControl
+                    uint8_t ecm_name_data[23];
+                    ecm_name_data[0] = MODE9_RESPONSE;
+                    ecm_name_data[1] = ECU_NAME_REQUEST;
+                    ecm_name_data[2] = 0x01;
+                    ecm_name_data[3] = 'E'; ecm_name_data[4] = 'C'; ecm_name_data[5] = 'M';
+                    ecm_name_data[6] = 0x00; ecm_name_data[7] = '-';
+                    const char* ecm_nm = "EngineControl";
+                    for(int i = 0; i < 13; i++) ecm_name_data[i+8] = ecm_nm[i];
+                    ecm_name_data[21] = 0x00; ecm_name_data[22] = 0x00;
+
+                    // TCM Name: TCM-TransmisCtrl
+                    uint8_t tcm_name_data[22];
+                    tcm_name_data[0] = MODE9_RESPONSE;
+                    tcm_name_data[1] = ECU_NAME_REQUEST;
+                    tcm_name_data[2] = 0x01;
+                    tcm_name_data[3] = 'T'; tcm_name_data[4] = 'C'; tcm_name_data[5] = 'M';
+                    tcm_name_data[6] = 0x00; tcm_name_data[7] = '-';
+                    const char* tcm_nm = "TransmisCtrl";
+                    for(int i = 0; i < 13; i++) tcm_name_data[i+8] = tcm_nm[i];
+                    tcm_name_data[21] = 0x00;
+
+                    // FPCM Name: FPCM-FuelPumpCtrl
+                    uint8_t fpcm_name_data[24];
+                    fpcm_name_data[0] = MODE9_RESPONSE;
+                    fpcm_name_data[1] = ECU_NAME_REQUEST;
+                    fpcm_name_data[2] = 0x01;
+                    fpcm_name_data[3] = 'F'; fpcm_name_data[4] = 'P'; fpcm_name_data[5] = 'C'; fpcm_name_data[6] = 'M';
+                    fpcm_name_data[7] = 0x00; fpcm_name_data[8] = '-';
+                    const char* fpcm_nm = "FuelPumpCtrl";
+                    for(int i = 0; i < 12; i++) fpcm_name_data[i+9] = fpcm_nm[i];
+                    fpcm_name_data[21] = 0x00; fpcm_name_data[22] = 0x00; fpcm_name_data[23] = 0x00;
+
+                    // Start ECM transfer immediately
+                    ecu_sim->isotp_init_transfer(ecm_name_data, 23, PID_REPLY_ENGINE, MODE9, ECU_NAME_REQUEST);
+                    ecu_sim->isotp_send_first_frame();
+
+                    // Queue TCM and FPCM transfers
+                    ecu_sim->isotp_queue_transfer(tcm_name_data, 22, PID_REPLY_TRANS, MODE9, ECU_NAME_REQUEST);
+                    ecu_sim->isotp_queue_transfer(fpcm_name_data, 24, PID_REPLY_CHASSIS, MODE9, ECU_NAME_REQUEST);
+
+                    break;
+                }
+
+                // Single ECU targeted request
                 if(isotp_tx.state != ISOTP_IDLE) break;
 
-                // ECU Name: "ECM-EngineControl"
-                uint8_t name_data[23];  // Total message
+                // Build ECU Name message
+                uint8_t name_data[25];  // Max size for any ECU name
                 name_data[0] = MODE9_RESPONSE;
                 name_data[1] = ECU_NAME_REQUEST;
                 name_data[2] = 0x01;  // 1 data item
-                // ECU Name with separator
-                name_data[3] = 'E';
-                name_data[4] = 'C';
-                name_data[5] = 'M';
-                name_data[6] = 0x00;  // Separator
-                name_data[7] = '-';
-                const char* name_rest = "EngineControl";
-                for(int i = 0; i < 13; i++) {
-                    name_data[i+8] = name_rest[i];
+
+                // Copy ECU prefix (ECM, TCM, or FPCM)
+                int idx = 3;
+                for(int i = 0; ecu_prefix[i] != '\0'; i++) {
+                    name_data[idx++] = ecu_prefix[i];
                 }
-                name_data[21] = 0x00;  // Null terminator
-                name_data[22] = 0x00;  // Padding
+                name_data[idx++] = 0x00;  // Separator
+                name_data[idx++] = '-';
+
+                // Copy ECU name
+                for(int i = 0; ecu_name[i] != '\0'; i++) {
+                    name_data[idx++] = ecu_name[i];
+                }
+
+                // Pad to expected length
+                while(idx < total_len) {
+                    name_data[idx++] = 0x00;
+                }
 
                 // Initialize ISO-TP transfer for multi-frame response
-                ecu_sim->isotp_init_transfer(name_data, 23, PID_REPLY_ENGINE, MODE9, ECU_NAME_REQUEST);
+                ecu_sim->isotp_init_transfer(name_data, total_len, response_id, MODE9, ECU_NAME_REQUEST);
                 ecu_sim->isotp_send_first_frame();
             }
             break;

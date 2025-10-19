@@ -263,6 +263,20 @@ extern ecu_t ecu;
 extern freeze_frame_t freeze_frame[2];  // Support 2 freeze frames
 extern isotp_transfer_t isotp_tx;        // ISO-TP transmit context
 
+// Queue for pending multi-ECU responses
+#define MAX_PENDING_TRANSFERS 3
+typedef struct {
+    uint8_t data[256];
+    uint16_t len;
+    uint16_t can_id;
+    uint8_t mode;
+    uint8_t pid;
+    bool pending;
+} pending_transfer_t;
+
+extern pending_transfer_t pending_transfers[MAX_PENDING_TRANSFERS];
+extern uint8_t pending_transfer_count;
+
 class ecu_simClass
 {
   
@@ -277,6 +291,7 @@ class ecu_simClass
   void isotp_handle_flow_control(uint8_t* data);
   void isotp_send_consecutive_frame(void);
   void isotp_process_transfers(void);
+  bool isotp_queue_transfer(uint8_t* data, uint16_t len, uint16_t can_id, uint8_t mode, uint8_t pid);
 
 private:
   
