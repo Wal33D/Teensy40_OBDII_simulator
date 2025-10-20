@@ -529,28 +529,89 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
                 // Only start transfer if not already in progress
                 if(isotp_tx.state != ISOTP_IDLE) break;
 
-                // Performance tracking data: 43 bytes total
-                uint8_t perf_data[43];
+                // Performance tracking data (IUMPR - In-Use Monitor Performance Ratio)
+                // Format matches real Mercedes-Benz GLE-Class data
+                // Total: 83 bytes (header + IUMPR data)
+                uint8_t perf_data[83];
                 perf_data[0] = MODE9_RESPONSE;
                 perf_data[1] = PERF_TRACK_REQUEST;
 
-                // Real performance tracking data from Mercedes-Benz
-                // Format: pairs of (numerator, denominator) for each monitor
-                uint8_t perf_values[] = {
-                    0x14, 0x10, 0x62, 0x2E, 0x4C, 0x17, 0x69, 0x10,
-                    0x62, 0x17, 0x04, 0xD0, 0x10, 0x10, 0x06, 0x2E,
-                    0x00, 0x17, 0x00, 0x00, 0xD0, 0x00, 0x10, 0x00,
-                    0x2E, 0x00, 0x11, 0x00, 0x00, 0xD0, 0x00, 0x0E,
-                    0x00, 0x00, 0x00, 0x00, 0x00, 0xD0, 0x00, 0x00,
-                    0x00
+                // IUMPR Data Format (SAE J1979-DA):
+                // Bytes 0-3:  OBDCOND (OBD Monitoring Conditions Encountered Counts) - 4 bytes
+                // Bytes 4-7:  IGNCNTR (Ignition Cycles Counter) - 4 bytes
+                // Bytes 8-15: CATCOMP1, CATCOND1 (Catalyst Bank 1) - 4+4 bytes
+                // Bytes 16-23: CATCOMP2, CATCOND2 (Catalyst Bank 2) - 4+4 bytes
+                // Bytes 24-31: O2SCOMP1, O2SCOND1 (O2 Sensor Bank 1) - 4+4 bytes
+                // Bytes 32-39: O2SCOMP2, O2SCOND2 (O2 Sensor Bank 2) - 4+4 bytes
+                // Bytes 40-47: EGRCOMP, EGRCOND (EGR/VVT System) - 4+4 bytes
+                // Bytes 48-55: EVAPCOMP, EVAPCOND (EVAP System) - 4+4 bytes
+                // Bytes 56-63: AIRCOMP, AIRCOND (Secondary Air System) - 4+4 bytes
+                // Bytes 64-71: SO2SCOMP1, SO2SCOND1 (Secondary O2 Bank 1) - 4+4 bytes
+                // Bytes 72-79: SO2SCOMP2, SO2SCOND2 (Secondary O2 Bank 2) - 4+4 bytes
+
+                uint8_t iumpr_values[] = {
+                    // OBDCOND: 51,360 = 0x0000C8A0
+                    0x00, 0x00, 0xC8, 0xA0,
+                    // IGNCNTR: 458,700 = 0x0006FE5C
+                    0x00, 0x06, 0xFE, 0x5C,
+
+                    // Catalyst Bank 1: 445,900 completions / 281,280 conditions
+                    // CATCOMP1: 445,900 = 0x0006CEDC
+                    0x00, 0x06, 0xCE, 0xDC,
+                    // CATCOND1: 281,280 = 0x00044AC0
+                    0x00, 0x04, 0x4A, 0xC0,
+
+                    // Catalyst Bank 2: 0 / 0 (single bank vehicle)
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00,
+
+                    // O2 Sensor Bank 1: 525,030 completions / 673,600 conditions
+                    // O2SCOMP1: 525,030 = 0x000801E6
+                    0x00, 0x08, 0x01, 0xE6,
+                    // O2SCOND1: 673,600 = 0x000A4840
+                    0x00, 0x0A, 0x48, 0x40,
+
+                    // O2 Sensor Bank 2: 0 / 0 (not equipped)
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00,
+
+                    // EGR/VVT: 532,480 completions / 40,960 conditions
+                    // EGRCOMP: 532,480 = 0x00082000
+                    0x00, 0x08, 0x20, 0x00,
+                    // EGRCOND: 40,960 = 0x0000A000
+                    0x00, 0x00, 0xA0, 0x00,
+
+                    // EVAP: 2,080 completions / 140 conditions
+                    // EVAPCOMP: 2,080 = 0x00000820
+                    0x00, 0x00, 0x08, 0x20,
+                    // EVAPCOND: 140 = 0x0000008C
+                    0x00, 0x00, 0x00, 0x8C,
+
+                    // Secondary Air: 117,760 completions / 43,520 conditions
+                    // AIRCOMP: 117,760 = 0x0001CC00
+                    0x00, 0x01, 0xCC, 0x00,
+                    // AIRCOND: 43,520 = 0x0000AA00
+                    0x00, 0x00, 0xAA, 0x00,
+
+                    // Secondary O2 Sensor Bank 1: 0 / 0 (not equipped)
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00,
+
+                    // Secondary O2 Sensor Bank 2: 0 / 0 (not equipped)
+                    0x00, 0x00, 0x00, 0x00,
+                    0x00, 0x00, 0x00, 0x00
                 };
 
-                for(int i = 0; i < 41; i++) {
-                    perf_data[i+2] = perf_values[i];
+                // Copy IUMPR data to response buffer
+                for(int i = 0; i < 80; i++) {
+                    perf_data[i+2] = iumpr_values[i];
                 }
 
-                // Initialize ISO-TP transfer for multi-frame response
-                ecu_sim->isotp_init_transfer(perf_data, 43, PID_REPLY_ENGINE, MODE9, PERF_TRACK_REQUEST);
+                // Add data count byte at the end
+                perf_data[82] = 0x01;  // 1 data item
+
+                // Initialize ISO-TP transfer for multi-frame response (83 bytes total)
+                ecu_sim->isotp_init_transfer(perf_data, 83, PID_REPLY_ENGINE, MODE9, PERF_TRACK_REQUEST);
                 ecu_sim->isotp_send_first_frame();
             }
             break;
