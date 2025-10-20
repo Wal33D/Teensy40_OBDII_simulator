@@ -205,8 +205,13 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
             can_MsgTx.buf[2] = MONITOR_STATUS;
             if(ecu.dtc == 1) can_MsgTx.buf[3] = 0x82;  // MIL ON (bit 7 set) if DTC present
                 else can_MsgTx.buf[3] = 0x00;          // MIL OFF if no DTC
-            can_MsgTx.buf[4] = 0x07;  // From Mercedes: 0007E500
-            can_MsgTx.buf[5] = 0xE5;
+            can_MsgTx.buf[4] = 0x07;  // Tests available: Misfire, Fuel, Components
+            // Readiness status byte: bit=1 means NOT COMPLETE
+            // Bit 0: Catalyst (0=READY, IUMPR 100%+)
+            // Bit 2: EVAP (1=NOT READY, IUMPR 0.002%)
+            // Bit 5: O2 Sensor (0=READY, IUMPR 100%+)
+            // Bit 7: EGR (0=READY, IUMPR 100%+)
+            can_MsgTx.buf[5] = 0x04;  // Only EVAP not ready (bit 2 set)
             can_MsgTx.buf[6] = 0x00;
             can1.write(can_MsgTx);
             break;
