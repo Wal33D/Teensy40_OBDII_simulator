@@ -207,11 +207,14 @@ bool handle_mode_01(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
                 else can_MsgTx.buf[3] = 0x00;          // MIL OFF if no DTC
             can_MsgTx.buf[4] = 0x07;  // Tests available: Misfire, Fuel, Components
             // Readiness status byte: bit=1 means NOT COMPLETE
-            // Bit 0: Catalyst (0=READY, IUMPR 100%+)
-            // Bit 2: EVAP (1=NOT READY, IUMPR 0.002%)
-            // Bit 5: O2 Sensor (0=READY, IUMPR 100%+)
-            // Bit 7: EGR (0=READY, IUMPR 100%+)
-            can_MsgTx.buf[5] = 0x04;  // Only EVAP not ready (bit 2 set)
+            // Per OBD-II standard: A monitor is "Ready" if it has completed AT LEAST ONCE
+            // IUMPR ratio is for EPA regulatory tracking, NOT readiness determination
+            // All monitors have >0 completions, so all are READY:
+            // Bit 0: Catalyst (0=READY, 131,070 completions)
+            // Bit 2: EVAP (0=READY, 1 completion - low ratio but HAS run!)
+            // Bit 5: O2 Sensor (0=READY, 6,670 completions)
+            // Bit 7: EGR (0=READY, 45,601 completions)
+            can_MsgTx.buf[5] = 0x00;  // All monitors ready (all bits = 0)
             can_MsgTx.buf[6] = 0x00;
             can1.write(can_MsgTx);
             break;
