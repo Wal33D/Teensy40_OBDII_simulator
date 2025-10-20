@@ -549,10 +549,10 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
                 // Bytes 18-19: O2SCOND2 (O2 Sensor Conditions Bank 2) - 2 bytes
                 // Bytes 20-21: EGRCOMP (EGR/VVT Completions) - 2 bytes
                 // Bytes 22-23: EGRCOND (EGR/VVT Conditions) - 2 bytes
-                // Bytes 24-25: EVAPCOMP (EVAP Completions) - 2 bytes
-                // Bytes 26-27: EVAPCOND (EVAP Conditions) - 2 bytes
-                // Bytes 28-29: AIRCOMP (Secondary Air Completions) - 2 bytes
-                // Bytes 30-31: AIRCOND (Secondary Air Conditions) - 2 bytes
+                // Bytes 24-25: AIRCOMP (Secondary Air Completions) - 2 bytes
+                // Bytes 26-27: AIRCOND (Secondary Air Conditions) - 2 bytes
+                // Bytes 28-29: EVAPCOMP (EVAP Completions) - 2 bytes
+                // Bytes 30-31: EVAPCOND (EVAP Conditions) - 2 bytes
                 // Bytes 32-33: SO2SCOMP1 (Secondary O2 Completions Bank 1) - 2 bytes
                 // Bytes 34-35: SO2SCOND1 (Secondary O2 Conditions Bank 1) - 2 bytes
                 // Bytes 36-37: SO2SCOMP2 (Secondary O2 Completions Bank 2) - 2 bytes
@@ -589,15 +589,15 @@ bool handle_mode_09(CAN_message_t& can_MsgRx, CAN_message_t& can_MsgTx, ecu_simC
                     // EGR/VVT Conditions: 3,088 = 0x0C10
                     0x0C, 0x10,
 
-                    // EVAP Completions: 1 = 0x0001
-                    0x00, 0x01,
-                    // EVAP Conditions: 46,851 = 0xB703
-                    0xB7, 0x03,
-
                     // Secondary Air Completions: 45,568 = 0xB200
                     0xB2, 0x00,
                     // Secondary Air Conditions: 0 = 0x0000
                     0x00, 0x00,
+
+                    // EVAP Completions: 1 = 0x0001
+                    0x00, 0x01,
+                    // EVAP Conditions: 46,851 = 0xB703
+                    0xB7, 0x03,
 
                     // Secondary O2 Sensor Bank 1 Completions: 6,670 = 0x1A0E
                     0x1A, 0x0E,
